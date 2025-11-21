@@ -349,10 +349,16 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, setPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, runTransaction, onSnapshot, collection, addDoc, query, orderBy, limit, updateDoc, deleteDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, runTransaction, onSnapshot, collection, addDoc, query, orderBy, limit, updateDoc, deleteDoc, deleteField, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // --- Config ---
-        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        let configRaw = typeof __firebase_config !== 'undefined' ? __firebase_config : '{}';
+        let firebaseConfig = JSON.parse(configRaw);
+        
+        if (Object.keys(firebaseConfig).length === 0) {
+            console.warn("⚠️ NO FIREBASE CONFIG FOUND. Please add your firebaseConfig object in the code.");
+        }
+
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app';
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
@@ -366,10 +372,10 @@
         
         let currentProfile = { name: 'Guest', emoji: '👤', color: 'text-gray-500' };
         let gameState = { grid: [], dice: [1], log: [], goalTargets: [] };
-        let leaderGoalSelection = []; // Local state for leader
+        let leaderGoalSelection = []; 
 
         const ROOMS_COLLECTION = `artifacts/${appId}/public/data/knockout_rooms`;
-        const CHAT_TTL = 3 * 24 * 60 * 60 * 1000; // 3 Days in MS
+        const CHAT_TTL = 3 * 24 * 60 * 60 * 1000; 
         const MAX_DICE = 10;
 
         const AVATAR_OPTIONS = [
@@ -385,28 +391,21 @@
         };
         
         const els = {
-            // Profile
             profileName: document.getElementById('profile-name-input'),
             avatarGrid: document.getElementById('avatar-grid'),
             saveProfileBtn: document.getElementById('save-profile-btn'),
-            
-            // Lobby
             lobbyAvatar: document.getElementById('lobby-avatar'),
             lobbyName: document.getElementById('lobby-name'),
             editProfileBtn: document.getElementById('edit-profile-btn'),
             newRoomName: document.getElementById('new-room-name'),
             createRoomBtn: document.getElementById('create-room-btn'),
-            joinRoomIdInput: document.getElementById('join-room-id'), // NEW
-            joinRoomBtn: document.getElementById('join-room-btn'),     // NEW
+            joinRoomIdInput: document.getElementById('join-room-id'),
+            joinRoomBtn: document.getElementById('join-room-btn'),
             roomList: document.getElementById('room-list'),
-            
-            // Game Header
             roomTitle: document.getElementById('current-room-title'),
             roomIdDisplay: document.getElementById('room-id-display'),
             activePlayers: document.getElementById('active-players-list'),
             leaveRoomBtn: document.getElementById('leave-room-btn'),
-            
-            // Game Board
             grid: document.getElementById('grid-container'),
             diceContainer: document.getElementById('dice-container'),
             rollBtn: document.getElementById('roll-btn'),
@@ -415,14 +414,10 @@
             clearBtn: document.getElementById('clear-button'),
             connStatus: document.getElementById('connection-status'),
             myPlayerColor: document.getElementById('my-player-color'),
-            
-            // New Features
             blackoutOverlay: document.getElementById('blackout-overlay'),
             leaderControls: document.getElementById('leader-controls'),
             leaderGrid: document.getElementById('leader-grid'),
             submitGoalBtn: document.getElementById('submit-goal-btn'),
-            
-            // Chat/Log
             tabChat: document.getElementById('tab-chat'),
             tabLog: document.getElementById('tab-log'),
             panelChat: document.getElementById('panel-chat'),
@@ -431,8 +426,6 @@
             chatInput: document.getElementById('chat-input'),
             chatForm: document.getElementById('chat-form'),
             gameLogList: document.getElementById('game-log-list'),
-
-            // Copy Link (Must be selected from DOM)
             copyLinkBtn: document.getElementById('copy-link-btn'),
         };
 
@@ -445,10 +438,7 @@
         const switchView = (viewName) => { 
             Object.values(views).forEach(el => el.classList.add('hidden')); 
             views[viewName].classList.remove('hidden'); 
-            
-            // Ensure lobby listener is active when returning to lobby
             if (viewName === 'lobby') setupLobbyListener();
-            // Ensure lobby listener is cleared when leaving lobby
             else if (unsubscribeLobby) { unsubscribeLobby(); unsubscribeLobby = null; }
         };
         const getUrlParam = (name) => new URLSearchParams(window.location.search).get(name);
@@ -470,20 +460,14 @@
             });
         };
 
-        /**
-         * Checks the URL for a 'room' parameter and attempts to join the room.
-         * Runs after the user profile is ready.
-         */
         const checkDeepLink = () => {
             const deepRoomId = getUrlParam('room');
             if (deepRoomId) {
-                // Remove the room ID from the URL to prevent re-joining on refresh
                 history.replaceState(null, '', window.location.pathname);
-                // Attempt to join the room immediately
                 joinRoom(deepRoomId);
-                return true; // Deep link handled
+                return true;
             }
-            return false; // No deep link
+            return false;
         }
 
         const saveProfile = () => {
@@ -495,7 +479,6 @@
             els.lobbyAvatar.textContent = currentProfile.emoji;
             els.lobbyAvatar.className = `w-10 h-10 rounded-full flex items-center justify-center text-xl shadow-inner border-2 ${currentProfile.color.replace('text-', 'border-')}`;
             
-            // If deep link is not handled, show lobby and setup listener
             if (!checkDeepLink()) {
                 switchView('lobby');
             }
@@ -506,7 +489,7 @@
             if (saved) { 
                 currentProfile = JSON.parse(saved); 
                 els.profileName.value = currentProfile.name; 
-                saveProfile(); // Calls saveProfile which now checks for deep links
+                saveProfile(); 
             }
             else { 
                 switchView('profile'); 
@@ -597,7 +580,6 @@
 
         // --- Rendering ---
         const renderGame = (state) => {
-            // Leader Controls Rendering
             if (state.createdBy === userId) {
                 els.leaderControls.classList.remove('hidden');
                 if(els.leaderGrid.children.length === 0) {
@@ -617,19 +599,13 @@
                 els.leaderControls.classList.add('hidden');
             }
 
-            // Grid & Blackout Check
             els.grid.innerHTML = '';
             let knockedCount = 0;
             state.grid.forEach((cell, idx) => {
                 const div = document.createElement('div');
                 div.className = 'number-cell rounded-lg shadow-sm';
                 div.textContent = cell.number;
-                
-                // Check if part of Goal
-                if (state.goalTargets && state.goalTargets.includes(cell.number)) {
-                    div.classList.add('goal-target');
-                }
-
+                if (state.goalTargets && state.goalTargets.includes(cell.number)) div.classList.add('goal-target');
                 if (cell.isKnockedOut) {
                     knockedCount++;
                     div.classList.add('knocked-out');
@@ -643,24 +619,21 @@
                 els.grid.appendChild(div);
             });
 
-            // Blackout Animation Trigger
             if (knockedCount === 36 && !document.getElementById('blackout-overlay').style.display) {
                 document.getElementById('blackout-overlay').style.display = 'flex';
             }
 
-            // Dice
             els.diceContainer.innerHTML = '';
             let total = 0;
             state.dice.forEach(val => {
                 total += val;
                 const d = document.createElement('div');
-                d.className = `dice dice-${val}`; // Uses new CSS class structure
+                d.className = `dice dice-${val}`; 
                 for(let i=0; i<val; i++) d.appendChild(document.createElement('div')).className = 'dot';
                 els.diceContainer.appendChild(d);
             });
             els.rollTotal.textContent = total;
 
-            // Players
             els.activePlayers.innerHTML = '';
             Object.values(state.players || {}).forEach(p => {
                 const bubble = document.createElement('div');
@@ -669,7 +642,6 @@
                 els.activePlayers.appendChild(bubble);
             });
             
-            // Log
             els.gameLogList.innerHTML = '';
             (state.log || []).slice().reverse().forEach(entry => {
                 const li = document.createElement('li');
@@ -680,7 +652,6 @@
 
         // --- Room Logic ---
         const joinRoom = async (roomId) => {
-            // 1. Clear previous listeners
             if (unsubscribeLobby) unsubscribeLobby();
             if (unsubscribeRoom) unsubscribeRoom();
             if (unsubscribeChat) unsubscribeChat();
@@ -688,7 +659,6 @@
             currentRoomId = roomId.trim();
             els.roomIdDisplay.textContent = currentRoomId;
 
-            // 2. Check if the room exists
             const roomRef = doc(db, ROOMS_COLLECTION, currentRoomId);
             const docSnap = await getDoc(roomRef);
             
@@ -699,7 +669,6 @@
                 return;
             }
 
-            // 3. Add player to the room using a transaction
             try {
                 await runTransaction(db, async (t) => {
                     const data = (await t.get(roomRef)).data();
@@ -715,7 +684,6 @@
                 return; 
             }
 
-            // 4. Set up live listeners and switch view
             switchView('game');
             els.myPlayerColor.textContent = currentProfile.name;
             els.myPlayerColor.className = `font-bold ${currentProfile.color}`;
@@ -730,6 +698,9 @@
         };
 
         const createRoom = async () => {
+            // FIX: Ensure user is connected before creating
+            if (!userId) return showModal("Still connecting to network... please wait 2 seconds.");
+            
             const name = els.newRoomName.value.trim();
             if (name.length < 3) return showModal("Room name must be 3+ characters.");
             els.createRoomBtn.disabled = true;
@@ -742,13 +713,16 @@
                 const ref = await addDoc(collection(db, ROOMS_COLLECTION), newRoom);
                 joinRoom(ref.id);
                 els.newRoomName.value = '';
-            } catch(e) { console.error(e); }
+            } catch(e) { 
+                console.error(e); 
+                showModal("Error creating room. Check console for details.");
+            }
             els.createRoomBtn.disabled = false;
         };
         
         const handleJoinById = () => {
             const id = els.joinRoomIdInput.value.trim();
-            if (id.length < 15) return showModal("Please enter a valid Room ID (it's a long string of letters and numbers).");
+            if (id.length < 15) return showModal("Please enter a valid Room ID.");
             joinRoom(id);
         }
 
@@ -756,21 +730,20 @@
             if (unsubscribeRoom) unsubscribeRoom();
             if (unsubscribeChat) unsubscribeChat();
             
-            // Try to remove player from the room (fire-and-forget, no transaction needed)
             if (currentRoomId) {
                 const roomRef = doc(db, ROOMS_COLLECTION, currentRoomId);
+                // FIX: Use deleteField() instead of deleteDoc
                 updateDoc(roomRef, { 
-                    [`players.${userId}`]: deleteDoc 
+                    [`players.${userId}`]: deleteField() 
                 }).catch(e => console.error("Could not remove player from room.", e));
             }
             
             currentRoomId = null;
-            switchView('lobby'); // This calls setupLobbyListener()
+            switchView('lobby'); 
         };
 
         const setupLobbyListener = () => {
             if (unsubscribeLobby) unsubscribeLobby();
-            // Query for the 20 most recently updated rooms for live updates
             const q = query(collection(db, ROOMS_COLLECTION), orderBy("lastUpdated", "desc"), limit(20));
             
             unsubscribeLobby = onSnapshot(q, (snap) => {
@@ -811,7 +784,7 @@
                         userId = user.uid;
                         els.connStatus.textContent = "Connected";
                         els.connStatus.classList.replace('text-gray-500', 'text-green-600');
-                        loadProfile(); // This handles profile load -> deep link check -> view switch
+                        loadProfile(); 
                     }
                 });
             } catch (e) { console.error(e); }
@@ -822,15 +795,13 @@
             els.saveProfileBtn.onclick = saveProfile;
             els.editProfileBtn.onclick = () => { switchView('profile'); renderAvatars(); };
             els.createRoomBtn.onclick = createRoom;
-            els.joinRoomBtn.onclick = handleJoinById; // NEW Listener
+            els.joinRoomBtn.onclick = handleJoinById; 
             els.leaveRoomBtn.onclick = leaveRoom;
             
-            // Copy button now generates a deep link URL
             if(els.copyLinkBtn) els.copyLinkBtn.onclick = () => {
                 if (!currentRoomId) return showModal("You must be in a room to copy a link.");
-                // Construct the full deep link URL
                 const roomUrl = `${window.location.origin}${window.location.pathname}?room=${currentRoomId}`;
-                document.execCommand('copy'); // Fallback for clipboard API issues
+                document.execCommand('copy');
                 navigator.clipboard.writeText(roomUrl).then(() => showModal("Room Link Copied!"));
             };
             
