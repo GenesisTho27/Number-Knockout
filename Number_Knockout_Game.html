@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Room Shared Knockout Game</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* General Setup */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+
+        /* Number Knockout Grid Styles */
+        .knockout-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            max-width: 500px;
+            margin: 20px auto;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        .number-cell {
+            padding: 10px;
+            aspect-ratio: 1/1;
+            border: 1px solid #e0e0e0;
+            text-align: center;
+            font-size: 20px;
+            font-weight: 700;
+            cursor: pointer;
+            user-select: none;
+            background-color: white;
+            transition: all 0.1s;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #374151;
+        }
+        .number-cell:hover:not(.knocked-out) {
+            background-color: #e0e7ff; /* Light Indigo */
+            transform: scale(1.05);
+            z-index: 10;
+            border-color: #6366f1;
+        }
+        
+        /* Knocked Out Style */
+        .knocked-out {
+            color: #9ca3af; 
+            background-color: #f9fafb; 
+            cursor: default;
+            position: relative;
+        }
+        .knocked-out::after {
+            content: "X";
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.5rem;
+            font-weight: 900;
+            opacity: 0.8;
+        }
+
+        /* Goal Target Style */
+        .goal-target {
+            background-color: #fef3c7 !important; /* Light Yellow */
+            border-color: #f59e0b !important; /* Amber */
+            border-width: 2px;
+        }
+
+        /* Dice Roller Styles */
+        #dice-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 1rem;
+            min-height: 80px;
+        }
+        .dice {
+            width: 60px;
+            height: 60px;
+            display: grid; 
+            padding: 8px;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(3, 1fr);
+            color: #333;
+            background-color: #ffffff;
+            border: 4px solid #10b981; /* Emerald */
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+            cursor: pointer;
+            user-select: none;
+            transition: transform 0.1s, opacity 0.3s;
+        }
+        .dice:hover { transform: scale(1.05); }
+        .removing { opacity: 0; transform: scale(0.1); }
+        .dot {
+            width: 10px;
+            height: 10px;
+            background-color: #333;
+            border-radius: 50%;
+            align-self: center; 
+            justify-self: center;
+        }
+        
+        /* Dice Dot Positions */
+        .dice-1 > .dot:nth-child(1) { grid-area: 2 / 2 / 3 / 3; } 
+        .dice-2 > .dot:nth-child(1) { grid-area: 1 / 1; } .dice-2 > .dot:nth-child(2) { grid-area: 3 / 3; }
+        .dice-3 > .dot:nth-child(1) { grid-area: 1 / 1; } .dice-3 > .dot:nth-child(2) { grid-area: 2 / 2; } .dice-3 > .dot:nth-child(3) { grid-area: 3 / 3; }
+        .dice-4 > .dot:nth-child(1) { grid-area: 1 / 1; } .dice-4 > .dot:nth-child(2) { grid-area: 1 / 3; } .dice-4 > .dot:nth-child(3) { grid-area: 3 / 1; } .dice-4 > .dot:nth-child(4) { grid-area: 3 / 3; }
+        .dice-5 > .dot:nth-child(1) { grid-area: 1 / 1; } .dice-5 > .dot:nth-child(2) { grid-area: 1 / 3; } .dice-5 > .dot:nth-child(3) { grid-area: 2 / 2; } .dice-5 > .dot:nth-child(4) { grid-area: 3 / 1; } .dice-5 > .dot:nth-child(5) { grid-area: 3 / 3; }
+        .dice-6 > .dot:nth-child(1) { grid-area: 1 / 1; } .dice-6 > .dot:nth-child(2) { grid-area: 1 / 3; } .dice-6 > .dot:nth-child(3) { grid-area: 2 / 1; } .dice-6 > .dot:nth-child(4) { grid-area: 2 / 3; } .dice-6 > .dot:nth-child(5) { grid-area: 3 / 1; } .dice-6 > .dot:nth-child(6) { grid-area: 3 / 3; }
+
+        .dice.rolling { animation: roll-3d 0.5s ease-out forwards; }
+        @keyframes roll-3d {
+            0% { transform: rotateX(0deg) rotateY(0deg) scale(1); opacity: 1; }
+            50% { transform: rotateX(180deg) rotateY(180deg) scale(1.1); opacity: 0.5; }
+            100% { transform: rotateX(360deg) rotateY(360deg) scale(1); opacity: 1; }
+        }
+
+        /* Blackout Animation */
+        #blackout-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 100;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+        }
+        #blackout-text {
+            font-size: 5rem;
+            font-weight: 900;
+            color: transparent;
+            background: linear-gradient(to right, #ef4444, #f59e0b, #10b981, #3b82f6, #6366f1, #8b5cf6, #ec4899);
+            -webkit-background-clip: text;
+            background-clip: text;
+            animation: rainbow 2s linear infinite, popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+        @keyframes rainbow { 
+            0% { background-position: 0% 50%; }
+            100% { background-position: 200% 50%; }
+        }
+        @keyframes popIn {
+            0% { opacity: 0; transform: scale(0.5); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+
+        /* Chat Styles */
+        .chat-bubble { max-width: 85%; padding: 0.5rem 0.75rem; border-radius: 0.75rem; font-size: 0.875rem; line-height: 1.25rem; margin-bottom: 0.5rem; word-wrap: break-word; }
+        .chat-self { background-color: #e0e7ff; color: #3730a3; border-bottom-right-radius: 0; margin-left: auto; }
+        .chat-other { background-color: #f3f4f6; color: #1f2937; border-bottom-left-radius: 0; }
+        
+        /* Leader Grid Checkboxes */
+        .leader-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 2px;
+        }
+        .leader-check-cell {
+            aspect-ratio: 1/1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid #d1d5db;
+            background: white;
+            font-size: 0.7rem;
+            cursor: pointer;
+        }
+        .leader-check-cell.selected {
+            background-color: #fcd34d; /* Yellow-300 */
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body class="p-4 sm:p-8 min-h-screen flex flex-col items-center relative">
+
+    <div id="blackout-overlay">
+        <div id="blackout-text">BLACKOUT!</div>
+        <button onclick="document.getElementById('blackout-overlay').style.display = 'none'" class="mt-8 px-6 py-3 bg-white text-gray-900 font-bold rounded-full shadow-lg hover:bg-gray-100 transition">Close</button>
+    </div>
+
+    <div class="max-w-7xl w-full">
+        <header class="text-center mb-6">
+            <h1 class="text-4xl font-extrabold text-gray-800 mb-1">Knockout Game Console</h1>
+            <p class="text-sm text-gray-500" id="connection-status">Initializing...</p>
+        </header>
+
+        <!-- VIEW 1: PROFILE LOGIN (First Screen) -->
+        <div id="profile-view" class="max-w-md mx-auto bg-white p-8 rounded-2xl shadow-xl border border-indigo-100">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6 text-center">Player Setup</h2>
+            <div class="mb-6">
+                <label class="block text-sm font-bold text-gray-600 mb-2">Display Name</label>
+                <input type="text" id="profile-name-input" placeholder="Enter your name" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none">
+            </div>
+            <div class="mb-6">
+                <label class="block text-sm font-bold text-gray-600 mb-2">Choose Avatar</label>
+                <div class="grid grid-cols-4 gap-3" id="avatar-grid">
+                    <!-- Avatars injected by JS -->
+                </div>
+            </div>
+            <button id="save-profile-btn" class="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700 transition shadow-md">Enter Lobby</button>
+        </div>
+
+        <!-- VIEW 2: LOBBY (Second Screen) -->
+        <div id="lobby-view" class="hidden space-y-6 max-w-2xl mx-auto">
+            <!-- User Info Bar -->
+            <div class="bg-white p-4 rounded-lg shadow-sm flex justify-between items-center">
+                <div class="flex items-center gap-3">
+                    <div id="lobby-avatar" class="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-xl shadow-inner">?</div>
+                    <div>
+                        <p class="font-bold text-gray-800" id="lobby-name">Guest</p>
+                        <p class="text-xs text-gray-500">Ready to play</p>
+                    </div>
+                </div>
+                <button id="edit-profile-btn" class="text-sm text-indigo-600 hover:underline">Edit Profile</button>
+            </div>
+
+            <!-- Create Room -->
+            <div class="bg-blue-50 p-6 rounded-xl border border-blue-100">
+                <h3 class="font-bold text-blue-800 mb-3">Start a New Game</h3>
+                <div class="flex gap-2">
+                    <input type="text" id="new-room-name" placeholder="Room Name (e.g. Math Class 1)" class="flex-grow p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                    <button id="create-room-btn" class="bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition disabled:opacity-50">Create</button>
+                </div>
+            </div>
+
+            <!-- Join by ID -->
+            <div class="bg-indigo-50 p-6 rounded-xl border border-indigo-100">
+                <h3 class="font-bold text-indigo-800 mb-3">Join by Room ID</h3>
+                <div class="flex gap-2">
+                    <input type="text" id="join-room-id" placeholder="Paste the 20-digit Room ID here" class="flex-grow p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none uppercase tracking-wider">
+                    <button id="join-room-btn" class="bg-indigo-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-indigo-700 transition disabled:opacity-50">Join</button>
+                </div>
+            </div>
+
+
+            <!-- Active Rooms List -->
+            <div class="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
+                <h3 class="font-bold text-gray-700 mb-4">Active Games (Live Update)</h3>
+                <div id="room-list" class="space-y-2 max-h-80 overflow-y-auto">
+                    <p class="text-center text-gray-400 italic py-4">Loading active rooms...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- VIEW 3: GAME BOARD (Third Screen) -->
+        <div id="game-view" class="hidden grid grid-cols-1 lg:grid-cols-12 gap-6">
+            
+            <!-- LEFT: Game Board (Span 8) -->
+            <div class="lg:col-span-8 space-y-6">
+                <!-- Top Bar -->
+                <div class="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+                    <div>
+                        <h2 id="current-room-title" class="text-xl font-bold text-gray-800">Room Name</h2>
+                        <!-- Room ID is prominently displayed here -->
+                        <div class="text-xs text-gray-500 mt-1">ID: <span id="room-id-display" class="font-mono font-semibold text-gray-700">...</span> <button id="copy-link-btn" class="text-indigo-500 hover:underline ml-2">Copy Link</button></div>
+                    </div>
+                    <div class="text-right">
+                        <button id="leave-room-btn" class="text-sm text-red-500 hover:underline font-semibold">Leave Room</button>
+                        <div class="text-xs text-gray-500 mt-1" id="current-player-identity">You: <span id="my-player-color" class="font-bold">...</span></div>
+                    </div>
+                </div>
+
+                <!-- Grid -->
+                <div class="bg-white p-6 rounded-xl shadow-lg border border-red-200">
+                    <div id="grid-container" class="knockout-grid"></div>
+                    <div class="text-center mt-4">
+                        <button id="clear-button" class="text-xs text-red-500 font-semibold border border-red-200 px-3 py-1 rounded-full hover:bg-red-50 transition">Reset Board</button>
+                    </div>
+                </div>
+                
+                <!-- Dice Roller -->
+                <div class="bg-white p-6 rounded-xl shadow-lg border border-green-200">
+                    <h3 class="text-lg font-bold text-green-700 mb-4">Dice Roller</h3>
+                    <div id="dice-container" class="mb-6"></div>
+                    <div class="flex gap-2 items-center">
+                        <button id="roll-btn" class="flex-grow bg-indigo-600 text-white py-2 rounded-lg font-bold hover:bg-indigo-700 shadow-sm transition">Roll All</button>
+                        <button id="add-die-btn" class="px-4 bg-gray-200 text-gray-700 rounded-lg font-bold hover:bg-gray-300 transition">+ Die</button>
+                        <span class="text-sm font-bold text-gray-500 ml-2">Total: <span id="roll-total">0</span></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RIGHT: Sidebar (Span 4) -->
+            <div class="lg:col-span-4 space-y-6">
+                
+                <!-- Leader Controls (Hidden by default, shown if creator) -->
+                <div id="leader-controls" class="bg-yellow-50 p-4 rounded-xl border border-yellow-200 hidden">
+                    <h3 class="text-sm font-bold text-yellow-800 uppercase mb-2">Leader Goal Setter</h3>
+                    <p class="text-xs text-gray-600 mb-2">Click numbers to set as goal targets:</p>
+                    
+                    <!-- Leader Mini Grid -->
+                    <div id="leader-grid" class="leader-grid mb-3">
+                        <!-- Injected by JS -->
+                    </div>
+                    
+                    <button id="submit-goal-btn" class="w-full bg-yellow-600 text-white py-2 rounded font-bold text-sm hover:bg-yellow-700">Submit Goal to Room</button>
+                </div>
+
+                <!-- Players List -->
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+                    <h3 class="font-bold text-gray-700 mb-3 text-sm uppercase tracking-wide">Players</h3>
+                    <div class="flex flex-wrap gap-2" id="active-players-list"></div>
+                </div>
+
+                <!-- Chat / Log Tabs -->
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 h-96 flex flex-col overflow-hidden">
+                    <div class="flex border-b text-sm font-bold text-gray-500 bg-gray-50">
+                        <button id="tab-chat" class="flex-1 py-3 text-indigo-600 border-b-2 border-indigo-600 hover:bg-white transition">Chat</button>
+                        <button id="tab-log" class="flex-1 py-3 hover:bg-white transition border-b-2 border-transparent">Game Log</button>
+                    </div>
+                    
+                    <!-- Chat Panel -->
+                    <div id="panel-chat" class="flex-grow flex flex-col h-full overflow-hidden">
+                        <div id="chat-messages" class="flex-grow p-3 overflow-y-auto space-y-2"></div>
+                        <form id="chat-form" class="p-2 border-t bg-gray-50">
+                            <div class="flex gap-2">
+                                <input type="text" id="chat-input" class="flex-grow border rounded px-2 py-1 text-sm outline-none focus:border-indigo-500" placeholder="Message..." autocomplete="off">
+                                <button type="submit" class="bg-indigo-500 text-white px-3 py-1 rounded text-sm font-bold hover:bg-indigo-600">Send</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Log Panel -->
+                    <div id="panel-log" class="flex-grow hidden p-3 overflow-y-auto bg-white">
+                        <ul id="game-log-list" class="space-y-1 text-xs text-gray-600"></ul>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Notification Modal -->
+    <div id="notification-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50 p-4">
+        <div class="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full text-center">
+            <p id="notification-msg" class="text-gray-800 font-medium mb-4"></p>
+            <button onclick="document.getElementById('notification-modal').classList.add('hidden')" class="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-indigo-700">OK</button>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, setPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, runTransaction, onSnapshot, collection, addDoc, query, orderBy, limit, updateDoc, deleteDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Config ---
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app';
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        // --- Globals ---
+        let db, auth, userId;
+        let appInitialized = false;
+        let currentRoomId = null;
+        let unsubscribeRoom = null;
+        let unsubscribeLobby = null;
+        let unsubscribeChat = null;
+        
+        let currentProfile = { name: 'Guest', emoji: '👤', color: 'text-gray-500' };
+        let gameState = { grid: [], dice: [1], log: [], goalTargets: [] };
+        let leaderGoalSelection = []; // Local state for leader
+
+        const ROOMS_COLLECTION = `artifacts/${appId}/public/data/knockout_rooms`;
+        const CHAT_TTL = 3 * 24 * 60 * 60 * 1000; // 3 Days in MS
+        const MAX_DICE = 10;
+
+        const AVATAR_OPTIONS = [
+            { e: '🦊', c: 'text-orange-500' }, { e: '🐸', c: 'text-green-500' }, { e: '🦄', c: 'text-purple-500' }, { e: '🤖', c: 'text-blue-500' },
+            { e: '🦁', c: 'text-yellow-500' }, { e: '🐙', c: 'text-red-500' }, { e: '🐼', c: 'text-gray-800' }, { e: '🦋', c: 'text-teal-500' }
+        ];
+
+        // --- DOM Elements ---
+        const views = {
+            profile: document.getElementById('profile-view'),
+            lobby: document.getElementById('lobby-view'),
+            game: document.getElementById('game-view')
+        };
+        
+        const els = {
+            // Profile
+            profileName: document.getElementById('profile-name-input'),
+            avatarGrid: document.getElementById('avatar-grid'),
+            saveProfileBtn: document.getElementById('save-profile-btn'),
+            
+            // Lobby
+            lobbyAvatar: document.getElementById('lobby-avatar'),
+            lobbyName: document.getElementById('lobby-name'),
+            editProfileBtn: document.getElementById('edit-profile-btn'),
+            newRoomName: document.getElementById('new-room-name'),
+            createRoomBtn: document.getElementById('create-room-btn'),
+            joinRoomIdInput: document.getElementById('join-room-id'), // NEW
+            joinRoomBtn: document.getElementById('join-room-btn'),     // NEW
+            roomList: document.getElementById('room-list'),
+            
+            // Game Header
+            roomTitle: document.getElementById('current-room-title'),
+            roomIdDisplay: document.getElementById('room-id-display'),
+            activePlayers: document.getElementById('active-players-list'),
+            leaveRoomBtn: document.getElementById('leave-room-btn'),
+            
+            // Game Board
+            grid: document.getElementById('grid-container'),
+            diceContainer: document.getElementById('dice-container'),
+            rollBtn: document.getElementById('roll-btn'),
+            addDieBtn: document.getElementById('add-die-btn'),
+            rollTotal: document.getElementById('roll-total'),
+            clearBtn: document.getElementById('clear-button'),
+            connStatus: document.getElementById('connection-status'),
+            myPlayerColor: document.getElementById('my-player-color'),
+            
+            // New Features
+            blackoutOverlay: document.getElementById('blackout-overlay'),
+            leaderControls: document.getElementById('leader-controls'),
+            leaderGrid: document.getElementById('leader-grid'),
+            submitGoalBtn: document.getElementById('submit-goal-btn'),
+            
+            // Chat/Log
+            tabChat: document.getElementById('tab-chat'),
+            tabLog: document.getElementById('tab-log'),
+            panelChat: document.getElementById('panel-chat'),
+            panelLog: document.getElementById('panel-log'),
+            chatList: document.getElementById('chat-messages'),
+            chatInput: document.getElementById('chat-input'),
+            chatForm: document.getElementById('chat-form'),
+            gameLogList: document.getElementById('game-log-list'),
+
+            // Copy Link (Must be selected from DOM)
+            copyLinkBtn: document.getElementById('copy-link-btn'),
+        };
+
+        // --- Helpers ---
+        const showModal = (msg) => {
+            document.getElementById('notification-msg').textContent = msg;
+            document.getElementById('notification-modal').classList.remove('hidden');
+        };
+        const rollDie = () => Math.floor(Math.random() * 6) + 1;
+        const switchView = (viewName) => { 
+            Object.values(views).forEach(el => el.classList.add('hidden')); 
+            views[viewName].classList.remove('hidden'); 
+            
+            // Ensure lobby listener is active when returning to lobby
+            if (viewName === 'lobby') setupLobbyListener();
+            // Ensure lobby listener is cleared when leaving lobby
+            else if (unsubscribeLobby) { unsubscribeLobby(); unsubscribeLobby = null; }
+        };
+        const getUrlParam = (name) => new URLSearchParams(window.location.search).get(name);
+
+        // --- Profile Logic ---
+        const renderAvatars = () => {
+            els.avatarGrid.innerHTML = '';
+            AVATAR_OPTIONS.forEach(opt => {
+                const btn = document.createElement('button');
+                btn.className = `w-12 h-12 rounded-full text-2xl flex items-center justify-center border-2 transition hover:scale-110 ${opt.c.replace('text-', 'border-')}`;
+                btn.textContent = opt.e;
+                if (currentProfile.emoji === opt.e) btn.classList.add('ring-4', 'ring-offset-2', 'ring-indigo-200', 'bg-indigo-50');
+                btn.onclick = () => {
+                    currentProfile.emoji = opt.e;
+                    currentProfile.color = opt.c;
+                    renderAvatars();
+                };
+                els.avatarGrid.appendChild(btn);
+            });
+        };
+
+        /**
+         * Checks the URL for a 'room' parameter and attempts to join the room.
+         * Runs after the user profile is ready.
+         */
+        const checkDeepLink = () => {
+            const deepRoomId = getUrlParam('room');
+            if (deepRoomId) {
+                // Remove the room ID from the URL to prevent re-joining on refresh
+                history.replaceState(null, '', window.location.pathname);
+                // Attempt to join the room immediately
+                joinRoom(deepRoomId);
+                return true; // Deep link handled
+            }
+            return false; // No deep link
+        }
+
+        const saveProfile = () => {
+            const name = els.profileName.value.trim();
+            if (name.length < 2) return showModal("Name must be 2+ characters");
+            currentProfile.name = name;
+            localStorage.setItem('knockout_profile_v3', JSON.stringify(currentProfile));
+            els.lobbyName.textContent = currentProfile.name;
+            els.lobbyAvatar.textContent = currentProfile.emoji;
+            els.lobbyAvatar.className = `w-10 h-10 rounded-full flex items-center justify-center text-xl shadow-inner border-2 ${currentProfile.color.replace('text-', 'border-')}`;
+            
+            // If deep link is not handled, show lobby and setup listener
+            if (!checkDeepLink()) {
+                switchView('lobby');
+            }
+        };
+
+        const loadProfile = () => {
+            const saved = localStorage.getItem('knockout_profile_v3');
+            if (saved) { 
+                currentProfile = JSON.parse(saved); 
+                els.profileName.value = currentProfile.name; 
+                saveProfile(); // Calls saveProfile which now checks for deep links
+            }
+            else { 
+                switchView('profile'); 
+                renderAvatars(); 
+            }
+        };
+
+        // --- Game Actions (Transaction) ---
+        const performAction = async (actionFn) => {
+            if (!currentRoomId) return;
+            const ref = doc(db, ROOMS_COLLECTION, currentRoomId);
+            try {
+                await runTransaction(db, async (t) => {
+                    const snap = await t.get(ref);
+                    if (!snap.exists()) throw "Room deleted";
+                    const state = snap.data();
+                    
+                    const update = actionFn(state);
+                    if (update) {
+                        if (update.logEntry) {
+                            const entry = { text: update.logEntry, user: currentProfile.name, time: Date.now(), color: currentProfile.color };
+                            update.log = [...(state.log || []), entry].slice(-50);
+                            delete update.logEntry;
+                        }
+                        update.lastUpdated = Date.now();
+                        update.lastUpdatedBy = userId;
+                        t.update(ref, update);
+                    }
+                });
+            } catch (e) { console.error(e); }
+        };
+
+        const toggleCellAction = (index) => (state) => {
+            const grid = [...state.grid];
+            const cell = grid[index];
+            if (cell.isKnockedOut) {
+                grid[index] = { ...cell, isKnockedOut: false, knockedBy: null };
+                return { grid, logEntry: `un-marked ${cell.number}` };
+            } else {
+                grid[index] = { ...cell, isKnockedOut: true, knockedBy: { id: userId, ...currentProfile } };
+                return { grid, logEntry: `knocked out ${cell.number}` };
+            }
+        };
+
+        const rollAction = (state) => ({ dice: state.dice.map(() => rollDie()), logEntry: `rolled the dice` });
+        const addDieAction = (state) => { if(state.dice.length>=MAX_DICE) return null; return { dice: [...state.dice, rollDie()], logEntry: `added a die` }; };
+        const resetAction = () => ({ 
+            grid: Array.from({ length: 36 }, (_, i) => ({ number: i + 1, isKnockedOut: false, knockedBy: null })), 
+            dice: [rollDie()], 
+            goalTargets: [],
+            logEntry: `reset the board` 
+        });
+        
+        const submitGoalAction = (targets) => (state) => {
+            if (state.createdBy !== userId) return null; 
+            return { goalTargets: targets, logEntry: `set a new goal` };
+        };
+
+        // --- Chat ---
+        const getChatRef = () => collection(db, `artifacts/${appId}/public/data/knockout_rooms/${currentRoomId}/messages`);
+        
+        const sendMessage = async (e) => {
+            e.preventDefault();
+            const text = els.chatInput.value.trim();
+            if (!text) return;
+            await addDoc(getChatRef(), { text, senderName: currentProfile.name, senderId: userId, timestamp: Date.now() });
+            els.chatInput.value = "";
+        };
+
+        const setupChatListener = () => {
+            if (unsubscribeChat) unsubscribeChat();
+            const cutoff = Date.now() - CHAT_TTL;
+            const q = query(getChatRef(), orderBy("timestamp", "asc"));
+            unsubscribeChat = onSnapshot(q, (snap) => {
+                els.chatList.innerHTML = "";
+                snap.forEach(doc => {
+                    const msg = doc.data();
+                    if (msg.timestamp < cutoff) return;
+                    const isMe = msg.senderId === userId;
+                    const div = document.createElement('div');
+                    div.className = `chat-bubble ${isMe ? 'chat-self' : 'chat-other'}`;
+                    div.innerHTML = `<span class="block text-[10px] opacity-75 mb-0.5 font-bold">${isMe ? 'You' : msg.senderName}</span>${msg.text}`;
+                    els.chatList.appendChild(div);
+                });
+                els.chatList.scrollTop = els.chatList.scrollHeight;
+            });
+        };
+
+        // --- Rendering ---
+        const renderGame = (state) => {
+            // Leader Controls Rendering
+            if (state.createdBy === userId) {
+                els.leaderControls.classList.remove('hidden');
+                if(els.leaderGrid.children.length === 0) {
+                    for(let i=1; i<=36; i++) {
+                        const d = document.createElement('div');
+                        d.className = 'leader-check-cell';
+                        d.textContent = i;
+                        d.onclick = () => {
+                            d.classList.toggle('selected');
+                            if(leaderGoalSelection.includes(i)) leaderGoalSelection = leaderGoalSelection.filter(x=>x!==i);
+                            else leaderGoalSelection.push(i);
+                        }
+                        els.leaderGrid.appendChild(d);
+                    }
+                }
+            } else {
+                els.leaderControls.classList.add('hidden');
+            }
+
+            // Grid & Blackout Check
+            els.grid.innerHTML = '';
+            let knockedCount = 0;
+            state.grid.forEach((cell, idx) => {
+                const div = document.createElement('div');
+                div.className = 'number-cell rounded-lg shadow-sm';
+                div.textContent = cell.number;
+                
+                // Check if part of Goal
+                if (state.goalTargets && state.goalTargets.includes(cell.number)) {
+                    div.classList.add('goal-target');
+                }
+
+                if (cell.isKnockedOut) {
+                    knockedCount++;
+                    div.classList.add('knocked-out');
+                    if (cell.knockedBy?.color) {
+                        div.classList.add(cell.knockedBy.color);
+                        div.style.borderColor = "currentColor";
+                    }
+                } else {
+                    div.onclick = () => performAction(toggleCellAction(idx));
+                }
+                els.grid.appendChild(div);
+            });
+
+            // Blackout Animation Trigger
+            if (knockedCount === 36 && !document.getElementById('blackout-overlay').style.display) {
+                document.getElementById('blackout-overlay').style.display = 'flex';
+            }
+
+            // Dice
+            els.diceContainer.innerHTML = '';
+            let total = 0;
+            state.dice.forEach(val => {
+                total += val;
+                const d = document.createElement('div');
+                d.className = `dice dice-${val}`; // Uses new CSS class structure
+                for(let i=0; i<val; i++) d.appendChild(document.createElement('div')).className = 'dot';
+                els.diceContainer.appendChild(d);
+            });
+            els.rollTotal.textContent = total;
+
+            // Players
+            els.activePlayers.innerHTML = '';
+            Object.values(state.players || {}).forEach(p => {
+                const bubble = document.createElement('div');
+                bubble.className = `flex items-center gap-1 px-2 py-1 rounded-full border text-xs font-bold bg-white shadow-sm`;
+                bubble.innerHTML = `<span class="${p.color}">${p.emoji}</span> ${p.name}`;
+                els.activePlayers.appendChild(bubble);
+            });
+            
+            // Log
+            els.gameLogList.innerHTML = '';
+            (state.log || []).slice().reverse().forEach(entry => {
+                const li = document.createElement('li');
+                li.innerHTML = `<span class="font-bold ${entry.color}">${entry.user}</span> ${entry.text}`;
+                els.gameLogList.appendChild(li);
+            });
+        };
+
+        // --- Room Logic ---
+        const joinRoom = async (roomId) => {
+            // 1. Clear previous listeners
+            if (unsubscribeLobby) unsubscribeLobby();
+            if (unsubscribeRoom) unsubscribeRoom();
+            if (unsubscribeChat) unsubscribeChat();
+            
+            currentRoomId = roomId.trim();
+            els.roomIdDisplay.textContent = currentRoomId;
+
+            // 2. Check if the room exists
+            const roomRef = doc(db, ROOMS_COLLECTION, currentRoomId);
+            const docSnap = await getDoc(roomRef);
+            
+            if (!docSnap.exists()) {
+                showModal("Error: Room ID not found or room has been deleted.");
+                currentRoomId = null;
+                switchView('lobby');
+                return;
+            }
+
+            // 3. Add player to the room using a transaction
+            try {
+                await runTransaction(db, async (t) => {
+                    const data = (await t.get(roomRef)).data();
+                    const players = data.players || {};
+                    players[userId] = { id: userId, ...currentProfile };
+                    t.update(roomRef, { players, lastUpdated: Date.now() });
+                });
+            } catch (e) { 
+                console.error("Failed to join room transaction:", e); 
+                showModal("Failed to join room. It might be locked or deleted."); 
+                currentRoomId = null; 
+                switchView('lobby');
+                return; 
+            }
+
+            // 4. Set up live listeners and switch view
+            switchView('game');
+            els.myPlayerColor.textContent = currentProfile.name;
+            els.myPlayerColor.className = `font-bold ${currentProfile.color}`;
+
+            unsubscribeRoom = onSnapshot(roomRef, (snap) => {
+                if (!snap.exists()) { showModal("Room deleted."); leaveRoom(); return; }
+                const data = snap.data();
+                els.roomTitle.textContent = data.name;
+                renderGame(data);
+            });
+            setupChatListener();
+        };
+
+        const createRoom = async () => {
+            const name = els.newRoomName.value.trim();
+            if (name.length < 3) return showModal("Room name must be 3+ characters.");
+            els.createRoomBtn.disabled = true;
+            try {
+                const newRoom = {
+                    name, createdAt: Date.now(), lastUpdated: Date.now(), createdBy: userId,
+                    grid: Array.from({ length: 36 }, (_, i) => ({ number: i + 1, isKnockedOut: false, knockedBy: null })),
+                    dice: [rollDie()], players: {}, log: [], goalTargets: []
+                };
+                const ref = await addDoc(collection(db, ROOMS_COLLECTION), newRoom);
+                joinRoom(ref.id);
+                els.newRoomName.value = '';
+            } catch(e) { console.error(e); }
+            els.createRoomBtn.disabled = false;
+        };
+        
+        const handleJoinById = () => {
+            const id = els.joinRoomIdInput.value.trim();
+            if (id.length < 15) return showModal("Please enter a valid Room ID (it's a long string of letters and numbers).");
+            joinRoom(id);
+        }
+
+        const leaveRoom = () => {
+            if (unsubscribeRoom) unsubscribeRoom();
+            if (unsubscribeChat) unsubscribeChat();
+            
+            // Try to remove player from the room (fire-and-forget, no transaction needed)
+            if (currentRoomId) {
+                const roomRef = doc(db, ROOMS_COLLECTION, currentRoomId);
+                updateDoc(roomRef, { 
+                    [`players.${userId}`]: deleteDoc 
+                }).catch(e => console.error("Could not remove player from room.", e));
+            }
+            
+            currentRoomId = null;
+            switchView('lobby'); // This calls setupLobbyListener()
+        };
+
+        const setupLobbyListener = () => {
+            if (unsubscribeLobby) unsubscribeLobby();
+            // Query for the 20 most recently updated rooms for live updates
+            const q = query(collection(db, ROOMS_COLLECTION), orderBy("lastUpdated", "desc"), limit(20));
+            
+            unsubscribeLobby = onSnapshot(q, (snap) => {
+                els.roomList.innerHTML = '';
+                if (snap.empty) els.roomList.innerHTML = '<p class="text-center text-gray-400 py-4">No active rooms. Be the first to create one!</p>';
+                else snap.forEach(d => {
+                    const r = d.data();
+                    const playerNames = Object.values(r.players || {}).map(p => p.name).join(', ');
+                    
+                    const div = document.createElement('div');
+                    div.className = "flex justify-between items-center p-3 bg-white border rounded-lg hover:bg-indigo-50 transition cursor-pointer";
+                    div.onclick = () => joinRoom(d.id);
+                    
+                    div.innerHTML = `
+                        <div>
+                            <p class="font-bold text-gray-700">${r.name}</p>
+                            <p class="text-xs text-gray-400">Players: ${playerNames || 'Waiting...'}</p>
+                        </div>
+                        <button class="text-xs bg-indigo-100 text-indigo-700 px-3 py-1 rounded font-bold">Join</button>
+                    `;
+                    els.roomList.appendChild(div);
+                });
+            });
+        };
+
+        // --- Main Init ---
+        const init = async () => {
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                await setPersistence(auth, browserSessionPersistence);
+                if (initialAuthToken) await signInWithCustomToken(auth, initialAuthToken);
+                else await signInAnonymously(auth);
+
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        els.connStatus.textContent = "Connected";
+                        els.connStatus.classList.replace('text-gray-500', 'text-green-600');
+                        loadProfile(); // This handles profile load -> deep link check -> view switch
+                    }
+                });
+            } catch (e) { console.error(e); }
+        };
+
+        window.onload = () => {
+            init();
+            els.saveProfileBtn.onclick = saveProfile;
+            els.editProfileBtn.onclick = () => { switchView('profile'); renderAvatars(); };
+            els.createRoomBtn.onclick = createRoom;
+            els.joinRoomBtn.onclick = handleJoinById; // NEW Listener
+            els.leaveRoomBtn.onclick = leaveRoom;
+            
+            // Copy button now generates a deep link URL
+            if(els.copyLinkBtn) els.copyLinkBtn.onclick = () => {
+                if (!currentRoomId) return showModal("You must be in a room to copy a link.");
+                // Construct the full deep link URL
+                const roomUrl = `${window.location.origin}${window.location.pathname}?room=${currentRoomId}`;
+                document.execCommand('copy'); // Fallback for clipboard API issues
+                navigator.clipboard.writeText(roomUrl).then(() => showModal("Room Link Copied!"));
+            };
+            
+            els.rollBtn.onclick = () => performAction(rollAction);
+            els.addDieBtn.onclick = () => performAction(addDieAction);
+            els.clearBtn.onclick = () => performAction(resetAction);
+            els.submitGoalBtn.onclick = () => performAction(submitGoalAction(leaderGoalSelection));
+
+            els.tabChat.onclick = () => { els.panelChat.classList.remove('hidden'); els.panelLog.classList.add('hidden'); els.tabChat.className="flex-1 py-3 text-indigo-600 border-b-2 border-indigo-600 bg-white"; els.tabLog.className="flex-1 py-3 hover:bg-white transition border-b-2 border-transparent"; };
+            els.tabLog.onclick = () => { els.panelLog.classList.remove('hidden'); els.panelChat.classList.add('hidden'); els.tabLog.className="flex-1 py-3 text-indigo-600 border-b-2 border-indigo-600 bg-white"; els.tabChat.className="flex-1 py-3 hover:bg-white transition border-b-2 border-transparent"; };
+            
+            els.chatForm.onsubmit = sendMessage;
+        };
+
+    </script>
+</body>
+</html>
