@@ -3,14 +3,29 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Multi-Room Shared Knockout Game</title>
+    
+    <title>Knockout Dice: Multiplayer Game</title>
+    <meta name="description" content="A real-time multiplayer dice knockout game. Create a room, roll dice, and compete with friends instantly.">
+    
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Knockout Dice: Multiplayer Game"> 
+    <meta property="og:description" content="Join my room and play this real-time dice game!">
+    <meta property="og:image" content="https://cdn-icons-png.flaticon.com/512/2239/2239625.png"> 
+
     <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
         /* General Setup */
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #f3f4f6;
+            transition: background 0.5s ease;
         }
+        
+        /* Background Themes */
+        body.theme-default { background-color: #f3f4f6; }
+        body.theme-dark { background-color: #1f2937; color: #f3f4f6; }
+        body.theme-sunset { background: linear-gradient(135deg, #f6d365 0%, #fda085 100%); }
+        body.theme-ocean { background: linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%); }
 
         /* Number Knockout Grid Styles */
         .knockout-grid {
@@ -39,12 +54,15 @@
             justify-content: center;
             color: #374151;
         }
+        body.theme-dark .number-cell { background-color: #374151; color: #f3f4f6; border-color: #4b5563; }
+        
         .number-cell:hover:not(.knocked-out) {
             background-color: #e0e7ff; /* Light Indigo */
             transform: scale(1.05);
             z-index: 10;
             border-color: #6366f1;
         }
+        body.theme-dark .number-cell:hover:not(.knocked-out) { background-color: #4b5563; }
         
         /* Knocked Out Style */
         .knocked-out {
@@ -53,6 +71,8 @@
             cursor: default;
             position: relative;
         }
+        body.theme-dark .knocked-out { background-color: #111827; color: #6b7280; }
+
         .knocked-out::after {
             content: "X";
             position: absolute;
@@ -71,6 +91,7 @@
             border-color: #f59e0b !important; /* Amber */
             border-width: 2px;
         }
+        body.theme-dark .goal-target { background-color: #78350f !important; border-color: #d97706 !important; }
 
         /* Dice Roller Styles */
         #dice-container {
@@ -96,7 +117,7 @@
             user-select: none;
             transition: transform 0.1s, opacity 0.3s;
         }
-        .dice:hover { transform: scale(1.05); }
+        .dice:hover { transform: scale(1.05); border-color: #ef4444; }
         .removing { opacity: 0; transform: scale(0.1); }
         .dot {
             width: 10px;
@@ -155,6 +176,8 @@
         .chat-bubble { max-width: 85%; padding: 0.5rem 0.75rem; border-radius: 0.75rem; font-size: 0.875rem; line-height: 1.25rem; margin-bottom: 0.5rem; word-wrap: break-word; }
         .chat-self { background-color: #e0e7ff; color: #3730a3; border-bottom-right-radius: 0; margin-left: auto; }
         .chat-other { background-color: #f3f4f6; color: #1f2937; border-bottom-left-radius: 0; }
+        body.theme-dark .chat-self { background-color: #3730a3; color: #e0e7ff; }
+        body.theme-dark .chat-other { background-color: #374151; color: #f3f4f6; }
         
         /* Leader Grid Checkboxes */
         .leader-grid {
@@ -171,80 +194,180 @@
             background: white;
             font-size: 0.7rem;
             cursor: pointer;
+            color: #333;
         }
         .leader-check-cell.selected {
             background-color: #fcd34d; /* Yellow-300 */
             font-weight: bold;
         }
+
+        /* Locked Overlay for Avatars */
+        .avatar-option { position: relative; }
+        .avatar-locked::after {
+            content: "🔒";
+            position: absolute;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            border-radius: 9999px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            color: white;
+        }
     </style>
 </head>
-<body class="p-4 sm:p-8 min-h-screen flex flex-col items-center relative">
+<body class="p-4 sm:p-8 min-h-screen flex flex-col items-center relative theme-default" id="main-body">
 
-    <div id="blackout-overlay">
+    <div id="blackout-overlay" style="display: none;">
         <div id="blackout-text">BLACKOUT!</div>
         <button onclick="document.getElementById('blackout-overlay').style.display = 'none'" class="mt-8 px-6 py-3 bg-white text-gray-900 font-bold rounded-full shadow-lg hover:bg-gray-100 transition">Close</button>
     </div>
 
+    <!-- Copy Modal -->
+    <div id="copy-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50 p-4">
+        <div class="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full text-center">
+            <h3 class="text-lg font-bold text-gray-800 mb-2">Share this Room</h3>
+            <p class="text-sm text-gray-500 mb-4">Copy the link below to invite friends:</p>
+            <input type="text" id="copy-input" class="w-full p-3 border-2 border-indigo-100 rounded-lg mb-4 text-sm bg-gray-50 font-mono text-gray-600 focus:ring-2 focus:ring-indigo-500 outline-none" readonly>
+            <div class="flex gap-2 justify-center">
+                <button onclick="document.getElementById('copy-modal').classList.add('hidden')" class="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg font-bold hover:bg-gray-300 transition">Close</button>
+                <button id="manual-copy-btn" class="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-indigo-700 transition">Copy Link</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Modal -->
+    <div id="notification-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50 p-4">
+        <div class="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full text-center">
+            <p id="notification-msg" class="text-gray-800 font-medium mb-4"></p>
+            <button onclick="document.getElementById('notification-modal').classList.add('hidden')" class="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-indigo-700">OK</button>
+        </div>
+    </div>
+
     <div class="max-w-7xl w-full">
         <header class="text-center mb-6">
-            <h1 class="text-4xl font-extrabold text-gray-800 mb-1">Knockout Game Console</h1>
-            <p class="text-sm text-gray-500" id="connection-status">Initializing...</p>
+            <h1 class="text-4xl font-extrabold text-gray-800 dark:text-white mb-1 drop-shadow-md">Knockout Dice</h1>
+            <div class="flex justify-center items-center gap-2">
+                <div id="status-dot" class="w-2 h-2 rounded-full bg-yellow-500"></div>
+                <p class="text-sm text-gray-500 dark:text-gray-300" id="connection-status">Connecting...</p>
+            </div>
         </header>
 
-        <!-- VIEW 1: PROFILE LOGIN (First Screen) -->
-        <div id="profile-view" class="max-w-md mx-auto bg-white p-8 rounded-2xl shadow-xl border border-indigo-100">
-            <h2 class="text-2xl font-bold text-gray-800 mb-6 text-center">Player Setup</h2>
-            <div class="mb-6">
-                <label class="block text-sm font-bold text-gray-600 mb-2">Display Name</label>
-                <input type="text" id="profile-name-input" placeholder="Enter your name" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none">
+        <!-- VIEW 1: AUTH / LOGIN (First Screen) -->
+        <div id="auth-view" class="max-w-md mx-auto bg-white p-8 rounded-2xl shadow-xl border border-indigo-100">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6 text-center">Welcome Player</h2>
+            
+            <!-- Auth Tabs -->
+            <div class="flex gap-2 mb-6 bg-gray-100 p-1 rounded-lg">
+                <button id="tab-login" class="flex-1 py-2 rounded-md text-sm font-bold bg-white shadow-sm text-indigo-600">Login</button>
+                <button id="tab-signup" class="flex-1 py-2 rounded-md text-sm font-bold text-gray-500 hover:bg-gray-200">Sign Up</button>
+                <button id="tab-guest" class="flex-1 py-2 rounded-md text-sm font-bold text-gray-500 hover:bg-gray-200">Guest</button>
             </div>
-            <div class="mb-6">
-                <label class="block text-sm font-bold text-gray-600 mb-2">Choose Avatar</label>
-                <div class="grid grid-cols-4 gap-3" id="avatar-grid">
-                    <!-- Avatars injected by JS -->
+
+            <!-- Email/Pass Form -->
+            <div id="auth-form-container">
+                <div class="mb-4">
+                    <label class="block text-xs font-bold text-gray-600 mb-1">Email</label>
+                    <input type="email" id="auth-email" class="w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none">
                 </div>
+                <div class="mb-6">
+                    <label class="block text-xs font-bold text-gray-600 mb-1">Password</label>
+                    <input type="password" id="auth-password" class="w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none">
+                </div>
+                <button id="auth-action-btn" class="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700 transition shadow-md">Log In</button>
             </div>
-            <button id="save-profile-btn" class="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700 transition shadow-md">Enter Lobby</button>
+
+            <!-- Guest Form -->
+            <div id="guest-form-container" class="hidden">
+                <p class="text-sm text-gray-500 mb-4 text-center">Play instantly. Stats won't be saved permanently.</p>
+                <button id="guest-btn" class="w-full bg-gray-800 text-white py-3 rounded-lg font-bold hover:bg-gray-900 transition shadow-md">Play as Guest</button>
+            </div>
         </div>
 
-        <!-- VIEW 2: LOBBY (Second Screen) -->
-        <div id="lobby-view" class="hidden space-y-6 max-w-2xl mx-auto">
-            <!-- User Info Bar -->
-            <div class="bg-white p-4 rounded-lg shadow-sm flex justify-between items-center">
-                <div class="flex items-center gap-3">
-                    <div id="lobby-avatar" class="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-xl shadow-inner">?</div>
-                    <div>
-                        <p class="font-bold text-gray-800" id="lobby-name">Guest</p>
-                        <p class="text-xs text-gray-500">Ready to play</p>
+        <!-- VIEW 2: LOBBY + PROFILE + STATS -->
+        <div id="lobby-view" class="hidden grid grid-cols-1 lg:grid-cols-12 gap-6">
+            
+            <!-- LEFT: Stats & Profile (Span 4) -->
+            <div class="lg:col-span-4 space-y-6">
+                <!-- Profile Card -->
+                <div class="bg-white p-6 rounded-xl shadow-lg border border-gray-100">
+                    <div class="flex items-center gap-4 mb-4">
+                        <div id="profile-avatar-display" class="w-16 h-16 rounded-full bg-indigo-50 flex items-center justify-center text-3xl border-4 border-indigo-100">?</div>
+                        <div>
+                            <h3 id="profile-name-display" class="font-bold text-xl text-gray-800">Player</h3>
+                            <p class="text-xs text-indigo-600 font-bold uppercase tracking-wide" id="profile-level-display">Level 1</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Stats Grid -->
+                    <div class="grid grid-cols-2 gap-2 text-center mb-4">
+                        <div class="bg-gray-50 p-2 rounded-lg">
+                            <p class="text-xl font-bold text-gray-800" id="stat-boxes">0</p>
+                            <p class="text-[10px] text-gray-500 uppercase">Boxes</p>
+                        </div>
+                        <div class="bg-gray-50 p-2 rounded-lg">
+                            <p class="text-xl font-bold text-gray-800" id="stat-streak">0</p>
+                            <p class="text-[10px] text-gray-500 uppercase">Day Streak</p>
+                        </div>
+                    </div>
+
+                    <!-- Edit Profile / Customization -->
+                    <div class="space-y-4 border-t pt-4">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-600 mb-2">Change Name</label>
+                            <div class="flex gap-2">
+                                <input type="text" id="edit-name-input" class="flex-grow p-2 border rounded text-sm" placeholder="New Name">
+                                <button id="save-name-btn" class="bg-indigo-600 text-white px-3 rounded text-xs font-bold">Save</button>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-600 mb-2">Select Avatar <span class="text-gray-400 font-normal">(Unlock more by playing!)</span></label>
+                            <div class="grid grid-cols-5 gap-2" id="avatar-selection-grid"></div>
+                        </div>
+                        <div id="theme-selector-container" class="hidden">
+                            <label class="block text-xs font-bold text-gray-600 mb-2">Theme (Lvl 10+)</label>
+                            <div class="flex gap-2">
+                                <button class="w-6 h-6 rounded-full bg-gray-200 border border-gray-400" onclick="changeTheme('theme-default')" title="Default"></button>
+                                <button class="w-6 h-6 rounded-full bg-gray-800 border border-gray-600" onclick="changeTheme('theme-dark')" title="Dark"></button>
+                                <button class="w-6 h-6 rounded-full bg-orange-300 border border-orange-500" onclick="changeTheme('theme-sunset')" title="Sunset"></button>
+                                <button class="w-6 h-6 rounded-full bg-blue-300 border border-blue-500" onclick="changeTheme('theme-ocean')" title="Ocean"></button>
+                            </div>
+                        </div>
+                        <button id="logout-btn" class="text-xs text-red-500 hover:underline w-full text-center mt-2">Sign Out</button>
                     </div>
                 </div>
-                <button id="edit-profile-btn" class="text-sm text-indigo-600 hover:underline">Edit Profile</button>
             </div>
 
-            <!-- Create Room -->
-            <div class="bg-blue-50 p-6 rounded-xl border border-blue-100">
-                <h3 class="font-bold text-blue-800 mb-3">Start a New Game</h3>
-                <div class="flex gap-2">
-                    <input type="text" id="new-room-name" placeholder="Room Name (e.g. Math Class 1)" class="flex-grow p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
-                    <button id="create-room-btn" class="bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition disabled:opacity-50">Create</button>
+            <!-- RIGHT: Room Management (Span 8) -->
+            <div class="lg:col-span-8 space-y-6">
+                <!-- Create Room -->
+                <div class="bg-blue-50 p-6 rounded-xl border border-blue-100">
+                    <h3 class="font-bold text-blue-800 mb-3">Start a New Game</h3>
+                    <div class="flex gap-2">
+                        <input type="text" id="new-room-name" placeholder="Room Name (e.g. Math Class 1)" class="flex-grow p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                        <button id="create-room-btn" class="bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition disabled:opacity-50">Create</button>
+                    </div>
                 </div>
-            </div>
 
-            <!-- Join by ID -->
-            <div class="bg-indigo-50 p-6 rounded-xl border border-indigo-100">
-                <h3 class="font-bold text-indigo-800 mb-3">Join by Room ID</h3>
-                <div class="flex gap-2">
-                    <input type="text" id="join-room-id" placeholder="Paste the 20-digit Room ID here" class="flex-grow p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none uppercase tracking-wider">
-                    <button id="join-room-btn" class="bg-indigo-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-indigo-700 transition disabled:opacity-50">Join</button>
+                <!-- Join by ID -->
+                <div class="bg-indigo-50 p-6 rounded-xl border border-indigo-100">
+                    <h3 class="font-bold text-indigo-800 mb-3">Join by Room ID</h3>
+                    <div class="flex gap-2">
+                        <input type="text" id="join-room-id" placeholder="Paste the 20-digit Room ID here" class="flex-grow p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none uppercase tracking-wider">
+                        <button id="join-room-btn" class="bg-indigo-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-indigo-700 transition disabled:opacity-50">Join</button>
+                    </div>
                 </div>
-            </div>
 
-
-            <!-- Active Rooms List -->
-            <div class="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
-                <h3 class="font-bold text-gray-700 mb-4">Active Games (Live Update)</h3>
-                <div id="room-list" class="space-y-2 max-h-80 overflow-y-auto">
-                    <p class="text-center text-gray-400 italic py-4">Loading active rooms...</p>
+                <!-- Active Rooms List -->
+                <div class="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="font-bold text-gray-700">Active Games</h3>
+                        <input type="text" id="room-search-input" placeholder="Search rooms..." class="text-sm border border-gray-300 rounded-md px-2 py-1 outline-none focus:border-indigo-500">
+                    </div>
+                    <div id="room-list" class="space-y-2 max-h-80 overflow-y-auto">
+                        <p class="text-center text-gray-400 italic py-4">Loading active rooms...</p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -255,20 +378,19 @@
             <!-- LEFT: Game Board (Span 8) -->
             <div class="lg:col-span-8 space-y-6">
                 <!-- Top Bar -->
-                <div class="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+                <div class="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-gray-200 dark:bg-gray-800 dark:border-gray-700">
                     <div>
-                        <h2 id="current-room-title" class="text-xl font-bold text-gray-800">Room Name</h2>
-                        <!-- Room ID is prominently displayed here -->
-                        <div class="text-xs text-gray-500 mt-1">ID: <span id="room-id-display" class="font-mono font-semibold text-gray-700">...</span> <button id="copy-link-btn" class="text-indigo-500 hover:underline ml-2">Copy Link</button></div>
+                        <h2 id="current-room-title" class="text-xl font-bold text-gray-800 dark:text-white">Room Name</h2>
+                        <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">ID: <span id="room-id-display" class="font-mono font-semibold text-gray-700 dark:text-gray-300">...</span> <button id="copy-link-btn" class="text-indigo-500 hover:underline ml-2 font-bold cursor-pointer bg-indigo-50 dark:bg-gray-700 px-2 py-1 rounded">Copy Invite</button></div>
                     </div>
                     <div class="text-right">
-                        <button id="leave-room-btn" class="text-sm text-red-500 hover:underline font-semibold">Leave Room</button>
-                        <div class="text-xs text-gray-500 mt-1" id="current-player-identity">You: <span id="my-player-color" class="font-bold">...</span></div>
+                        <button id="leave-room-btn" class="text-sm text-red-500 hover:underline font-bold bg-red-50 px-3 py-1 rounded-full border border-red-100 hover:bg-red-100 transition">Leave Room</button>
+                        <div class="text-xs text-gray-500 dark:text-gray-400 mt-1" id="current-player-identity">You: <span id="my-player-color" class="font-bold">...</span></div>
                     </div>
                 </div>
 
                 <!-- Grid -->
-                <div class="bg-white p-6 rounded-xl shadow-lg border border-red-200">
+                <div class="bg-white p-6 rounded-xl shadow-lg border border-red-200 dark:bg-gray-800 dark:border-gray-700">
                     <div id="grid-container" class="knockout-grid"></div>
                     <div class="text-center mt-4">
                         <button id="clear-button" class="text-xs text-red-500 font-semibold border border-red-200 px-3 py-1 rounded-full hover:bg-red-50 transition">Reset Board</button>
@@ -276,7 +398,7 @@
                 </div>
                 
                 <!-- Dice Roller -->
-                <div class="bg-white p-6 rounded-xl shadow-lg border border-green-200">
+                <div class="bg-white p-6 rounded-xl shadow-lg border border-green-200 dark:bg-gray-800 dark:border-gray-700">
                     <h3 class="text-lg font-bold text-green-700 mb-4">Dice Roller</h3>
                     <div id="dice-container" class="mb-6"></div>
                     <div class="flex gap-2 items-center">
@@ -290,118 +412,147 @@
             <!-- RIGHT: Sidebar (Span 4) -->
             <div class="lg:col-span-4 space-y-6">
                 
-                <!-- Leader Controls (Hidden by default, shown if creator) -->
+                <!-- Leader Controls -->
                 <div id="leader-controls" class="bg-yellow-50 p-4 rounded-xl border border-yellow-200 hidden">
                     <h3 class="text-sm font-bold text-yellow-800 uppercase mb-2">Leader Goal Setter</h3>
                     <p class="text-xs text-gray-600 mb-2">Click numbers to set as goal targets:</p>
-                    
-                    <!-- Leader Mini Grid -->
-                    <div id="leader-grid" class="leader-grid mb-3">
-                        <!-- Injected by JS -->
-                    </div>
-                    
+                    <div id="leader-grid" class="leader-grid mb-3"></div>
                     <button id="submit-goal-btn" class="w-full bg-yellow-600 text-white py-2 rounded font-bold text-sm hover:bg-yellow-700">Submit Goal to Room</button>
                 </div>
 
                 <!-- Players List -->
-                <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-                    <h3 class="font-bold text-gray-700 mb-3 text-sm uppercase tracking-wide">Players</h3>
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 dark:bg-gray-800 dark:border-gray-700">
+                    <h3 class="font-bold text-gray-700 dark:text-gray-300 mb-3 text-sm uppercase tracking-wide">Players</h3>
                     <div class="flex flex-wrap gap-2" id="active-players-list"></div>
                 </div>
 
                 <!-- Chat / Log Tabs -->
-                <div class="bg-white rounded-xl shadow-sm border border-gray-200 h-96 flex flex-col overflow-hidden">
-                    <div class="flex border-b text-sm font-bold text-gray-500 bg-gray-50">
-                        <button id="tab-chat" class="flex-1 py-3 text-indigo-600 border-b-2 border-indigo-600 hover:bg-white transition">Chat</button>
-                        <button id="tab-log" class="flex-1 py-3 hover:bg-white transition border-b-2 border-transparent">Game Log</button>
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 h-96 flex flex-col overflow-hidden dark:bg-gray-800 dark:border-gray-700">
+                    <div class="flex border-b text-sm font-bold text-gray-500 bg-gray-50 dark:bg-gray-900 dark:border-gray-600">
+                        <button id="tab-chat" class="flex-1 py-3 text-indigo-600 border-b-2 border-indigo-600 hover:bg-white dark:hover:bg-gray-800 transition">Chat</button>
+                        <button id="tab-log" class="flex-1 py-3 hover:bg-white dark:hover:bg-gray-800 transition border-b-2 border-transparent">Game Log</button>
                     </div>
                     
-                    <!-- Chat Panel -->
                     <div id="panel-chat" class="flex-grow flex flex-col h-full overflow-hidden">
                         <div id="chat-messages" class="flex-grow p-3 overflow-y-auto space-y-2"></div>
-                        <form id="chat-form" class="p-2 border-t bg-gray-50">
+                        <form id="chat-form" class="p-2 border-t bg-gray-50 dark:bg-gray-900 dark:border-gray-600">
                             <div class="flex gap-2">
-                                <input type="text" id="chat-input" class="flex-grow border rounded px-2 py-1 text-sm outline-none focus:border-indigo-500" placeholder="Message..." autocomplete="off">
+                                <input type="text" id="chat-input" class="flex-grow border rounded px-2 py-1 text-sm outline-none focus:border-indigo-500 dark:bg-gray-700 dark:text-white dark:border-gray-600" placeholder="Message..." autocomplete="off">
                                 <button type="submit" class="bg-indigo-500 text-white px-3 py-1 rounded text-sm font-bold hover:bg-indigo-600">Send</button>
                             </div>
                         </form>
                     </div>
 
-                    <!-- Log Panel -->
-                    <div id="panel-log" class="flex-grow hidden p-3 overflow-y-auto bg-white">
-                        <ul id="game-log-list" class="space-y-1 text-xs text-gray-600"></ul>
+                    <div id="panel-log" class="flex-grow hidden p-3 overflow-y-auto bg-white dark:bg-gray-800">
+                        <ul id="game-log-list" class="space-y-1 text-xs text-gray-600 dark:text-gray-300"></ul>
                     </div>
                 </div>
-
             </div>
-        </div>
-
-    </div>
-
-    <!-- Notification Modal -->
-    <div id="notification-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50 p-4">
-        <div class="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full text-center">
-            <p id="notification-msg" class="text-gray-800 font-medium mb-4"></p>
-            <button onclick="document.getElementById('notification-modal').classList.add('hidden')" class="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-indigo-700">OK</button>
         </div>
     </div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, setPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, runTransaction, onSnapshot, collection, addDoc, query, orderBy, limit, updateDoc, deleteDoc, deleteField, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, setPersistence, browserSessionPersistence, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, runTransaction, onSnapshot, collection, addDoc, query, orderBy, limit, updateDoc, deleteDoc, deleteField, increment } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // --- Config ---
-        let configRaw = typeof __firebase_config !== 'undefined' ? __firebase_config : '{}';
-        let firebaseConfig = JSON.parse(configRaw);
-        
-        if (Object.keys(firebaseConfig).length === 0) {
-            console.warn("⚠️ NO FIREBASE CONFIG FOUND. Please add your firebaseConfig object in the code.");
+        // 🔴 STEP 1: PASTE YOUR FIREBASE KEYS BELOW (These placeholders are overridden by __firebase_config at runtime) 🔴
+        const firebaseConfig = {
+            apiKey: "AIzaSyDPQ6qbkWojnoDwgJs3zE8zOZDrYAEZqpg",
+            authDomain: "number-knockout.firebaseapp.com",
+            projectId: "number-knockout",
+            storageBucket: "number-knockout.firebasestorage.app",
+            messagingSenderId: "120418555008",
+            appId: "1:120418555008:web:fe0fb1750a65a515e6c265"
+        };
+
+        if (typeof __firebase_config !== 'undefined' && __firebase_config !== '{}') {
+            try {
+                // IMPORTANT: This line merges the environment config with the placeholders.
+                Object.assign(firebaseConfig, JSON.parse(__firebase_config));
+            } catch (e) {
+                console.error("Error parsing __firebase_config:", e);
+            }
         }
-
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app';
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-
+        
         // --- Globals ---
         let db, auth, userId;
-        let appInitialized = false;
         let currentRoomId = null;
         let unsubscribeRoom = null;
         let unsubscribeLobby = null;
         let unsubscribeChat = null;
+        let allActiveRooms = []; 
         
-        let currentProfile = { name: 'Guest', emoji: '👤', color: 'text-gray-500' };
-        let gameState = { grid: [], dice: [1], log: [], goalTargets: [] };
+        let userData = {
+            name: 'Guest',
+            emoji: '👤',
+            color: 'text-gray-500',
+            stats: { boxes: 0, streak: 0, lastPlayed: null },
+            tier: 1
+        };
+        
         let leaderGoalSelection = []; 
 
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app';
         const ROOMS_COLLECTION = `artifacts/${appId}/public/data/knockout_rooms`;
+        const USERS_COLLECTION = `artifacts/${appId}/public/data/knockout_users`;
         const CHAT_TTL = 3 * 24 * 60 * 60 * 1000; 
         const MAX_DICE = 10;
 
-        const AVATAR_OPTIONS = [
-            { e: '🦊', c: 'text-orange-500' }, { e: '🐸', c: 'text-green-500' }, { e: '🦄', c: 'text-purple-500' }, { e: '🤖', c: 'text-blue-500' },
-            { e: '🦁', c: 'text-yellow-500' }, { e: '🐙', c: 'text-red-500' }, { e: '🐼', c: 'text-gray-800' }, { e: '🦋', c: 'text-teal-500' }
-        ];
+        // --- Avatar Tiers ---
+        const AVATAR_TIERS = {
+            1: [ // Starter
+                { e: '🦊', c: 'text-orange-500' }, { e: '🐸', c: 'text-green-500' }, { e: '🤖', c: 'text-blue-500' }, { e: '🐙', c: 'text-red-500' }
+            ],
+            5: [ // Level 5 Unlocks
+                { e: '🐻', c: 'text-amber-700' }, { e: '🐭', c: 'text-gray-400' }, { e: '🐯', c: 'text-orange-600' }, { e: '🐢', c: 'text-green-700' }, { e: '🦋', c: 'text-teal-500' }
+            ],
+            10: [ // Level 10 Unlocks
+                { e: '🦁', c: 'text-yellow-500' }, { e: '🦄', c: 'text-purple-500' }, { e: '🐲', c: 'text-red-600' }, { e: '👽', c: 'text-green-400' }
+            ]
+        };
 
         // --- DOM Elements ---
         const views = {
-            profile: document.getElementById('profile-view'),
+            auth: document.getElementById('auth-view'),
             lobby: document.getElementById('lobby-view'),
             game: document.getElementById('game-view')
         };
         
         const els = {
-            profileName: document.getElementById('profile-name-input'),
-            avatarGrid: document.getElementById('avatar-grid'),
-            saveProfileBtn: document.getElementById('save-profile-btn'),
-            lobbyAvatar: document.getElementById('lobby-avatar'),
-            lobbyName: document.getElementById('lobby-name'),
-            editProfileBtn: document.getElementById('edit-profile-btn'),
+            // Auth
+            tabLogin: document.getElementById('tab-login'),
+            tabSignup: document.getElementById('tab-signup'),
+            tabGuest: document.getElementById('tab-guest'),
+            authFormContainer: document.getElementById('auth-form-container'),
+            guestFormContainer: document.getElementById('guest-form-container'),
+            authEmail: document.getElementById('auth-email'),
+            authPass: document.getElementById('auth-password'),
+            authBtn: document.getElementById('auth-action-btn'),
+            guestBtn: document.getElementById('guest-btn'),
+
+            // Profile / Stats
+            profileName: document.getElementById('profile-name-display'),
+            profileAvatar: document.getElementById('profile-avatar-display'),
+            profileLevel: document.getElementById('profile-level-display'),
+            statBoxes: document.getElementById('stat-boxes'),
+            statStreak: document.getElementById('stat-streak'),
+            editNameInput: document.getElementById('edit-name-input'),
+            saveNameBtn: document.getElementById('save-name-btn'),
+            avatarGrid: document.getElementById('avatar-selection-grid'),
+            themeContainer: document.getElementById('theme-selector-container'),
+            logoutBtn: document.getElementById('logout-btn'),
+
+            // Lobby
             newRoomName: document.getElementById('new-room-name'),
             createRoomBtn: document.getElementById('create-room-btn'),
             joinRoomIdInput: document.getElementById('join-room-id'),
             joinRoomBtn: document.getElementById('join-room-btn'),
             roomList: document.getElementById('room-list'),
+            roomSearchInput: document.getElementById('room-search-input'),
+            
+            // Game
             roomTitle: document.getElementById('current-room-title'),
             roomIdDisplay: document.getElementById('room-id-display'),
             activePlayers: document.getElementById('active-players-list'),
@@ -413,8 +564,8 @@
             rollTotal: document.getElementById('roll-total'),
             clearBtn: document.getElementById('clear-button'),
             connStatus: document.getElementById('connection-status'),
+            statusDot: document.getElementById('status-dot'),
             myPlayerColor: document.getElementById('my-player-color'),
-            blackoutOverlay: document.getElementById('blackout-overlay'),
             leaderControls: document.getElementById('leader-controls'),
             leaderGrid: document.getElementById('leader-grid'),
             submitGoalBtn: document.getElementById('submit-goal-btn'),
@@ -427,6 +578,11 @@
             chatForm: document.getElementById('chat-form'),
             gameLogList: document.getElementById('game-log-list'),
             copyLinkBtn: document.getElementById('copy-link-btn'),
+
+            // Copy Modal elements
+            copyModal: document.getElementById('copy-modal'),
+            copyInput: document.getElementById('copy-input'),
+            manualCopyBtn: document.getElementById('manual-copy-btn'),
         };
 
         // --- Helpers ---
@@ -435,69 +591,155 @@
             document.getElementById('notification-modal').classList.remove('hidden');
         };
         const rollDie = () => Math.floor(Math.random() * 6) + 1;
+        
         const switchView = (viewName) => { 
             Object.values(views).forEach(el => el.classList.add('hidden')); 
             views[viewName].classList.remove('hidden'); 
             if (viewName === 'lobby') setupLobbyListener();
             else if (unsubscribeLobby) { unsubscribeLobby(); unsubscribeLobby = null; }
         };
-        const getUrlParam = (name) => new URLSearchParams(window.location.search).get(name);
 
-        // --- Profile Logic ---
-        const renderAvatars = () => {
-            els.avatarGrid.innerHTML = '';
-            AVATAR_OPTIONS.forEach(opt => {
-                const btn = document.createElement('button');
-                btn.className = `w-12 h-12 rounded-full text-2xl flex items-center justify-center border-2 transition hover:scale-110 ${opt.c.replace('text-', 'border-')}`;
-                btn.textContent = opt.e;
-                if (currentProfile.emoji === opt.e) btn.classList.add('ring-4', 'ring-offset-2', 'ring-indigo-200', 'bg-indigo-50');
-                btn.onclick = () => {
-                    currentProfile.emoji = opt.e;
-                    currentProfile.color = opt.c;
-                    renderAvatars();
+        const getLevel = (boxes) => Math.floor(boxes / 20) + 1; // Level up every 20 boxes
+
+        window.changeTheme = (theme) => {
+            document.getElementById('main-body').className = `p-4 sm:p-8 min-h-screen flex flex-col items-center relative ${theme}`;
+            localStorage.setItem('knockout_theme', theme);
+        };
+        
+        // Copy function using execCommand, which is more reliable in iframes
+        const copyToClipboard = (text) => {
+            els.copyInput.value = text;
+            els.copyModal.classList.remove('hidden');
+            els.copyInput.select();
+            els.copyInput.setSelectionRange(0, 99999);
+            
+            let success = false;
+            try { 
+                success = document.execCommand('copy');
+            } catch (err) {
+                console.error('execCommand failed:', err);
+            }
+            
+            if (success) {
+                els.manualCopyBtn.textContent = "Copied!"; 
+                setTimeout(() => { 
+                    els.copyModal.classList.add('hidden');
+                    els.manualCopyBtn.textContent = "Copy Link"; 
+                }, 2000);
+            } else {
+                els.manualCopyBtn.textContent = "Click to Copy";
+                showModal("Automatic copy failed. Please click the button to manually copy the link from the field.");
+                // Rebind button for manual copy attempt
+                els.manualCopyBtn.onclick = () => {
+                    els.copyInput.select(); 
+                    document.execCommand('copy'); 
+                    els.manualCopyBtn.textContent = "Copied!"; 
+                    setTimeout(() => els.copyModal.classList.add('hidden'), 2000); 
                 };
-                els.avatarGrid.appendChild(btn);
+            }
+        };
+
+
+        // --- User Data Management ---
+        const loadUserData = async () => {
+            if (!userId) return;
+            const userRef = doc(db, USERS_COLLECTION, userId);
+            
+            try {
+                const snap = await getDoc(userRef);
+                if (snap.exists()) {
+                    const data = snap.data();
+                    userData = { ...userData, ...data };
+                    // Check streak (simplified for single-file demo)
+                    const today = new Date().toDateString();
+                    if (userData.stats.lastPlayed !== today) {
+                        // In a full app, we'd check if yesterday was played, for now we just update date
+                    }
+                } else {
+                    // Create new user doc
+                    await setDoc(userRef, userData);
+                }
+                updateProfileUI();
+            } catch (e) { console.error("Load User Error", e); }
+        };
+
+        const updateProfileUI = () => {
+            // Level Calc
+            const level = getLevel(userData.stats.boxes);
+            userData.tier = level;
+
+            els.profileName.textContent = userData.name;
+            els.profileAvatar.textContent = userData.emoji;
+            // Avatar style update
+            els.profileAvatar.className = `w-16 h-16 rounded-full flex items-center justify-center text-3xl border-4 ${userData.color.replace('text-', 'border-')} shadow-inner`;
+            els.profileLevel.textContent = `Level ${level}`;
+            els.statBoxes.textContent = userData.stats.boxes;
+            els.statStreak.textContent = userData.stats.streak;
+            els.editNameInput.value = userData.name;
+
+            // Unlock Backgrounds at Lvl 10
+            if (level >= 10) els.themeContainer.classList.remove('hidden');
+
+            // Render Avatars based on Level
+            els.avatarGrid.innerHTML = '';
+            [1, 5, 10].forEach(tierLevel => {
+                const rowLabel = document.createElement('div');
+                rowLabel.className = "col-span-5 text-[10px] font-bold text-gray-400 mt-1 uppercase tracking-wide text-left";
+                rowLabel.textContent = tierLevel === 1 ? "Starter" : `Level ${tierLevel}+`;
+                els.avatarGrid.appendChild(rowLabel);
+
+                AVATAR_TIERS[tierLevel].forEach(opt => {
+                    const isLocked = level < tierLevel;
+                    const btn = document.createElement('button');
+                    btn.className = `w-8 h-8 rounded-full flex items-center justify-center border transition avatar-option ${isLocked ? 'avatar-locked cursor-not-allowed opacity-50' : 'hover:scale-110 cursor-pointer'} ${opt.c.replace('text-', 'border-')}`;
+                    btn.textContent = opt.e;
+                    
+                    if (!isLocked) {
+                        if (userData.emoji === opt.e) btn.classList.add('ring-2', 'ring-indigo-500');
+                        btn.onclick = () => {
+                            userData.emoji = opt.e;
+                            userData.color = opt.c;
+                            saveUserData();
+                        };
+                    }
+                    els.avatarGrid.appendChild(btn);
+                });
             });
         };
 
-        const checkDeepLink = () => {
-            const deepRoomId = getUrlParam('room');
-            if (deepRoomId) {
-                history.replaceState(null, '', window.location.pathname);
-                joinRoom(deepRoomId);
-                return true;
+        const saveUserData = async () => {
+            updateProfileUI(); // Optimistic update
+            if (userId) {
+                const userRef = doc(db, USERS_COLLECTION, userId);
+                await updateDoc(userRef, { 
+                    name: userData.name, 
+                    emoji: userData.emoji, 
+                    color: userData.color 
+                });
             }
-            return false;
-        }
+        };
 
-        const saveProfile = () => {
-            const name = els.profileName.value.trim();
-            if (name.length < 2) return showModal("Name must be 2+ characters");
-            currentProfile.name = name;
-            localStorage.setItem('knockout_profile_v3', JSON.stringify(currentProfile));
-            els.lobbyName.textContent = currentProfile.name;
-            els.lobbyAvatar.textContent = currentProfile.emoji;
-            els.lobbyAvatar.className = `w-10 h-10 rounded-full flex items-center justify-center text-xl shadow-inner border-2 ${currentProfile.color.replace('text-', 'border-')}`;
+        // --- Auth Logic ---
+        const handleAuth = async (isSignup) => {
+            const email = els.authEmail.value;
+            const pass = els.authPass.value;
+            if (!email || !pass) return showModal("Please enter email and password.");
             
-            if (!checkDeepLink()) {
-                switchView('lobby');
+            try {
+                if (isSignup) await createUserWithEmailAndPassword(auth, email, pass);
+                else await signInWithEmailAndPassword(auth, email, pass);
+                // Success logic handled by onAuthStateChanged
+            } catch (e) {
+                // Enhanced error messaging
+                let msg = e.message;
+                if(e.code === 'auth/operation-not-allowed') msg = "Email/Password login is not enabled in Firebase Console. Please enable it in Build > Authentication.";
+                else if(e.code === 'auth/weak-password') msg = "Password is too weak.";
+                else if(e.code === 'auth/email-already-in-use') msg = "Email already exists.";
+                showModal("Auth Error: " + msg);
             }
         };
 
-        const loadProfile = () => {
-            const saved = localStorage.getItem('knockout_profile_v3');
-            if (saved) { 
-                currentProfile = JSON.parse(saved); 
-                els.profileName.value = currentProfile.name; 
-                saveProfile(); 
-            }
-            else { 
-                switchView('profile'); 
-                renderAvatars(); 
-            }
-        };
-
-        // --- Game Actions (Transaction) ---
+        // --- Game Actions ---
         const performAction = async (actionFn) => {
             if (!currentRoomId) return;
             const ref = doc(db, ROOMS_COLLECTION, currentRoomId);
@@ -510,7 +752,7 @@
                     const update = actionFn(state);
                     if (update) {
                         if (update.logEntry) {
-                            const entry = { text: update.logEntry, user: currentProfile.name, time: Date.now(), color: currentProfile.color };
+                            const entry = { text: update.logEntry, user: userData.name, time: Date.now(), color: userData.color };
                             update.log = [...(state.log || []), entry].slice(-50);
                             delete update.logEntry;
                         }
@@ -526,16 +768,31 @@
             const grid = [...state.grid];
             const cell = grid[index];
             if (cell.isKnockedOut) {
+                // Allow un-knockout
                 grid[index] = { ...cell, isKnockedOut: false, knockedBy: null };
                 return { grid, logEntry: `un-marked ${cell.number}` };
             } else {
-                grid[index] = { ...cell, isKnockedOut: true, knockedBy: { id: userId, ...currentProfile } };
+                grid[index] = { ...cell, isKnockedOut: true, knockedBy: { id: userId, name: userData.name, emoji: userData.emoji, color: userData.color } };
+                
+                // Update User Stats (Fire & Forget)
+                const userRef = doc(db, USERS_COLLECTION, userId);
+                updateDoc(userRef, { 
+                    "stats.boxes": increment(1),
+                    "stats.lastPlayed": new Date().toDateString()
+                }).then(loadUserData); // Refresh local UI
+
                 return { grid, logEntry: `knocked out ${cell.number}` };
             }
         };
 
         const rollAction = (state) => ({ dice: state.dice.map(() => rollDie()), logEntry: `rolled the dice` });
         const addDieAction = (state) => { if(state.dice.length>=MAX_DICE) return null; return { dice: [...state.dice, rollDie()], logEntry: `added a die` }; };
+        const removeDieAction = (index) => (state) => {
+            const newDice = [...state.dice];
+            if (newDice.length === 0) return null; 
+            newDice.splice(index, 1);
+            return { dice: newDice, logEntry: `removed a die` };
+        };
         const resetAction = () => ({ 
             grid: Array.from({ length: 36 }, (_, i) => ({ number: i + 1, isKnockedOut: false, knockedBy: null })), 
             dice: [rollDie()], 
@@ -555,7 +812,7 @@
             e.preventDefault();
             const text = els.chatInput.value.trim();
             if (!text) return;
-            await addDoc(getChatRef(), { text, senderName: currentProfile.name, senderId: userId, timestamp: Date.now() });
+            await addDoc(getChatRef(), { text, senderName: userData.name, senderId: userId, timestamp: Date.now() });
             els.chatInput.value = "";
         };
 
@@ -580,20 +837,39 @@
 
         // --- Rendering ---
         const renderGame = (state) => {
+            if (!state) return; // Guard clause
+
+            // Leader Controls
             if (state.createdBy === userId) {
                 els.leaderControls.classList.remove('hidden');
                 if(els.leaderGrid.children.length === 0) {
+                    // Populate Leader Grid (1-36) once
                     for(let i=1; i<=36; i++) {
                         const d = document.createElement('div');
                         d.className = 'leader-check-cell';
                         d.textContent = i;
+                        if (state.goalTargets && state.goalTargets.includes(i)) d.classList.add('selected');
+                        
                         d.onclick = () => {
                             d.classList.toggle('selected');
-                            if(leaderGoalSelection.includes(i)) leaderGoalSelection = leaderGoalSelection.filter(x=>x!==i);
-                            else leaderGoalSelection.push(i);
+                            const val = i;
+                            if(leaderGoalSelection.includes(val)) leaderGoalSelection = leaderGoalSelection.filter(x=>x!==val);
+                            else leaderGoalSelection.push(val);
                         }
                         els.leaderGrid.appendChild(d);
                     }
+                    leaderGoalSelection = state.goalTargets || [];
+                } else {
+                    // Update state of leader grid based on the current goal
+                    const currentGoals = new Set(state.goalTargets || []);
+                    Array.from(els.leaderGrid.children).forEach(d => {
+                        const num = parseInt(d.textContent);
+                        if (currentGoals.has(num)) {
+                            d.classList.add('selected');
+                        } else {
+                            d.classList.remove('selected');
+                        }
+                    });
                 }
             } else {
                 els.leaderControls.classList.add('hidden');
@@ -601,7 +877,7 @@
 
             els.grid.innerHTML = '';
             let knockedCount = 0;
-            state.grid.forEach((cell, idx) => {
+            (state.grid || []).forEach((cell, idx) => {
                 const div = document.createElement('div');
                 div.className = 'number-cell rounded-lg shadow-sm';
                 div.textContent = cell.number;
@@ -610,8 +886,10 @@
                     knockedCount++;
                     div.classList.add('knocked-out');
                     if (cell.knockedBy?.color) {
-                        div.classList.add(cell.knockedBy.color);
+                        // Apply color to the knocked out cell for visual distinction
+                        div.style.color = "currentColor";
                         div.style.borderColor = "currentColor";
+                        div.classList.add(cell.knockedBy.color);
                     }
                 } else {
                     div.onclick = () => performAction(toggleCellAction(idx));
@@ -625,11 +903,13 @@
 
             els.diceContainer.innerHTML = '';
             let total = 0;
-            state.dice.forEach(val => {
+            (state.dice || []).forEach((val, idx) => {
                 total += val;
                 const d = document.createElement('div');
                 d.className = `dice dice-${val}`; 
                 for(let i=0; i<val; i++) d.appendChild(document.createElement('div')).className = 'dot';
+                d.onclick = () => performAction(removeDieAction(idx));
+                d.title = "Remove Die";
                 els.diceContainer.appendChild(d);
             });
             els.rollTotal.textContent = total;
@@ -660,64 +940,67 @@
             els.roomIdDisplay.textContent = currentRoomId;
 
             const roomRef = doc(db, ROOMS_COLLECTION, currentRoomId);
-            const docSnap = await getDoc(roomRef);
             
+            // WAIT for data before switching view to avoid "Reset" glitch
+            const docSnap = await getDoc(roomRef);
             if (!docSnap.exists()) {
-                showModal("Error: Room ID not found or room has been deleted.");
+                showModal("Error: Room not found. It may have been deleted.");
                 currentRoomId = null;
                 switchView('lobby');
                 return;
             }
 
+            // Join Transaction
             try {
-                await runTransaction(db, async (t) => {
-                    const data = (await t.get(roomRef)).data();
-                    const players = data.players || {};
-                    players[userId] = { id: userId, ...currentProfile };
-                    t.update(roomRef, { players, lastUpdated: Date.now() });
+                // We use setDoc(merge: true) outside of a transaction for a simple presence update
+                // This is slightly less robust than transaction but faster for non-critical presence update
+                const playerUpdate = { id: userId, name: userData.name, emoji: userData.emoji, color: userData.color };
+                await updateDoc(roomRef, { 
+                    [`players.${userId}`]: playerUpdate,
+                    lastUpdated: Date.now()
                 });
+
             } catch (e) { 
-                console.error("Failed to join room transaction:", e); 
-                showModal("Failed to join room. It might be locked or deleted."); 
-                currentRoomId = null; 
-                switchView('lobby');
-                return; 
+                console.error("Join Room Presence Update Failed:", e);
+                // Continue anyway, player might just be viewing
             }
 
             switchView('game');
-            els.myPlayerColor.textContent = currentProfile.name;
-            els.myPlayerColor.className = `font-bold ${currentProfile.color}`;
+            els.myPlayerColor.textContent = userData.name;
+            els.myPlayerColor.className = `font-bold ${userData.color}`;
 
+            // Initial Render from Snapshot
+            renderGame(docSnap.data());
+
+            // Real-time listener
             unsubscribeRoom = onSnapshot(roomRef, (snap) => {
                 if (!snap.exists()) { showModal("Room deleted."); leaveRoom(); return; }
-                const data = snap.data();
-                els.roomTitle.textContent = data.name;
-                renderGame(data);
+                renderGame(snap.data());
             });
             setupChatListener();
         };
 
         const createRoom = async () => {
-            // FIX: Ensure user is connected before creating
-            if (!userId) return showModal("Still connecting to network... please wait 2 seconds.");
-            
             const name = els.newRoomName.value.trim();
             if (name.length < 3) return showModal("Room name must be 3+ characters.");
+            
             els.createRoomBtn.disabled = true;
+            
             try {
                 const newRoom = {
                     name, createdAt: Date.now(), lastUpdated: Date.now(), createdBy: userId,
                     grid: Array.from({ length: 36 }, (_, i) => ({ number: i + 1, isKnockedOut: false, knockedBy: null })),
                     dice: [rollDie()], players: {}, log: [], goalTargets: []
                 };
+                
                 const ref = await addDoc(collection(db, ROOMS_COLLECTION), newRoom);
-                joinRoom(ref.id);
+                await joinRoom(ref.id);
                 els.newRoomName.value = '';
             } catch(e) { 
-                console.error(e); 
-                showModal("Error creating room. Check console for details.");
-            }
-            els.createRoomBtn.disabled = false;
+                console.error("Error creating room:", e);
+                showModal("Error creating room. Check console for details."); 
+            } 
+            finally { els.createRoomBtn.disabled = false; }
         };
         
         const handleJoinById = () => {
@@ -727,95 +1010,223 @@
         }
 
         const leaveRoom = () => {
-            if (unsubscribeRoom) unsubscribeRoom();
-            if (unsubscribeChat) unsubscribeChat();
+            if (unsubscribeRoom) { unsubscribeRoom(); unsubscribeRoom = null; }
+            if (unsubscribeChat) { unsubscribeChat(); unsubscribeChat = null; }
             
-            if (currentRoomId) {
+            if (currentRoomId && userId) {
                 const roomRef = doc(db, ROOMS_COLLECTION, currentRoomId);
-                // FIX: Use deleteField() instead of deleteDoc
-                updateDoc(roomRef, { 
-                    [`players.${userId}`]: deleteField() 
-                }).catch(e => console.error("Could not remove player from room.", e));
+                // Remove player field from the room document
+                updateDoc(roomRef, { [`players.${userId}`]: deleteField() }).catch(e => console.error("Error leaving room:", e));
             }
             
             currentRoomId = null;
             switchView('lobby'); 
         };
 
-        const setupLobbyListener = () => {
-            if (unsubscribeLobby) unsubscribeLobby();
-            const q = query(collection(db, ROOMS_COLLECTION), orderBy("lastUpdated", "desc"), limit(20));
+        const renderRoomList = () => {
+            const filterText = els.roomSearchInput.value.trim().toLowerCase();
+            els.roomList.innerHTML = '';
             
-            unsubscribeLobby = onSnapshot(q, (snap) => {
-                els.roomList.innerHTML = '';
-                if (snap.empty) els.roomList.innerHTML = '<p class="text-center text-gray-400 py-4">No active rooms. Be the first to create one!</p>';
-                else snap.forEach(d => {
-                    const r = d.data();
-                    const playerNames = Object.values(r.players || {}).map(p => p.name).join(', ');
-                    
+            // Filter out rooms that haven't been updated in 2 hours as simple cleanup
+            const activeCutoff = Date.now() - (2 * 60 * 60 * 1000); 
+            const filtered = allActiveRooms
+                .filter(r => (r.data.lastUpdated > activeCutoff) && r.data.name.toLowerCase().includes(filterText));
+
+            if (filtered.length === 0) els.roomList.innerHTML = '<p class="text-center text-gray-400 py-4">No active rooms found.</p>';
+            else {
+                filtered.forEach(item => {
+                    const r = item.data;
+                    const pCount = Object.keys(r.players || {}).length;
                     const div = document.createElement('div');
                     div.className = "flex justify-between items-center p-3 bg-white border rounded-lg hover:bg-indigo-50 transition cursor-pointer";
-                    div.onclick = () => joinRoom(d.id);
-                    
-                    div.innerHTML = `
-                        <div>
-                            <p class="font-bold text-gray-700">${r.name}</p>
-                            <p class="text-xs text-gray-400">Players: ${playerNames || 'Waiting...'}</p>
-                        </div>
-                        <button class="text-xs bg-indigo-100 text-indigo-700 px-3 py-1 rounded font-bold">Join</button>
-                    `;
+                    div.onclick = () => joinRoom(item.id);
+                    div.innerHTML = `<div><p class="font-bold text-gray-700">${r.name}</p><p class="text-xs text-gray-400">${pCount} Player${pCount!==1?'s':''}</p></div><button class="text-xs bg-indigo-100 text-indigo-700 px-3 py-1 rounded font-bold">Join</button>`;
                     els.roomList.appendChild(div);
                 });
+            }
+        };
+
+        const setupLobbyListener = () => {
+            if (unsubscribeLobby) unsubscribeLobby();
+            if (!db) return;
+            // Query for the 50 most recently updated rooms
+            const q = query(collection(db, ROOMS_COLLECTION), orderBy("lastUpdated", "desc"), limit(50));
+            unsubscribeLobby = onSnapshot(q, (snap) => {
+                allActiveRooms = [];
+                snap.forEach(d => allActiveRooms.push({ id: d.id, data: d.data() }));
+                renderRoomList();
+            }, (error) => {
+                console.error("Lobby Listener Failed:", error);
+                // If the listener fails, we just stop listening and show a message
+                els.roomList.innerHTML = '<p class="text-center text-red-500 py-4">Error loading rooms. Check security rules.</p>';
+                unsubscribeLobby = null;
             });
+        };
+
+        const getUrlParam = (name) => new URLSearchParams(window.location.search).get(name);
+        
+        const checkDeepLink = () => {
+            const deepRoomId = getUrlParam('room');
+            if (deepRoomId) {
+                // Remove param so refreshing doesn't loop
+                history.replaceState(null, '', window.location.pathname);
+                
+                // Store pending ID
+                sessionStorage.setItem('pending_join_room', deepRoomId);
+                return true; // Handled
+            }
+            return false;
         };
 
         // --- Main Init ---
         const init = async () => {
+            // Configuration check (relying on __firebase_config to override placeholders)
+            if (firebaseConfig.apiKey.includes('PASTE_YOUR')) {
+                els.connStatus.textContent = "Configuration Error";
+                els.statusDot.classList.replace('bg-yellow-500', 'bg-red-500');
+                // The runtime environment handles the actual config, so this error is for hardcoded config missing.
+                console.warn("Using runtime Firebase config. If this fails, hardcoded keys are missing.");
+            }
+
             try {
                 const app = initializeApp(firebaseConfig);
                 db = getFirestore(app);
                 auth = getAuth(app);
+                // Set persistence to session to maintain login across refreshes
                 await setPersistence(auth, browserSessionPersistence);
-                if (initialAuthToken) await signInWithCustomToken(auth, initialAuthToken);
-                else await signInAnonymously(auth);
 
-                onAuthStateChanged(auth, (user) => {
+                onAuthStateChanged(auth, async (user) => {
                     if (user) {
                         userId = user.uid;
-                        els.connStatus.textContent = "Connected";
-                        els.connStatus.classList.replace('text-gray-500', 'text-green-600');
-                        loadProfile(); 
+                        els.connStatus.textContent = "Online";
+                        els.statusDot.classList.replace('bg-yellow-500', 'bg-green-500');
+                        await loadUserData();
+                        
+                        // Check if we have a pending room join from a link
+                        const pendingRoom = sessionStorage.getItem('pending_join_room');
+                        if (pendingRoom) {
+                            sessionStorage.removeItem('pending_join_room');
+                            joinRoom(pendingRoom);
+                        } else {
+                            switchView('lobby');
+                        }
+                    } else {
+                        // Check for deep link BEFORE showing login
+                        checkDeepLink();
+                        // Sign in anonymously if initial auth token is present (Canvas environment)
+                        if (typeof __initial_auth_token !== 'undefined') { 
+                            await signInWithCustomToken(auth, __initial_auth_token); 
+                        } else {
+                            switchView('auth');
+                        }
                     }
                 });
-            } catch (e) { console.error(e); }
+            } catch (e) { 
+                console.error("Firebase Initialization Failed:", e);
+                els.connStatus.textContent = "System Offline - Check Console";
+                els.statusDot.classList.replace('bg-yellow-500', 'bg-red-500');
+                showModal(`Connection Error: ${e.message}. Check your browser console for details.`);
+            }
         };
 
         window.onload = () => {
             init();
-            els.saveProfileBtn.onclick = saveProfile;
-            els.editProfileBtn.onclick = () => { switchView('profile'); renderAvatars(); };
+            
+            // --- Event Listeners ---
+            
+            // Auth View Handlers
+            let isLoginMode = true;
+            els.tabLogin.onclick = () => { 
+                isLoginMode = true; 
+                els.authFormContainer.classList.remove('hidden'); 
+                els.guestFormContainer.classList.add('hidden'); 
+                els.authBtn.textContent = "Log In"; 
+                els.tabLogin.className="flex-1 py-2 rounded-md text-sm font-bold bg-white shadow-sm text-indigo-600"; 
+                els.tabSignup.className="flex-1 py-2 rounded-md text-sm font-bold text-gray-500 hover:bg-gray-200"; 
+                els.tabGuest.className="flex-1 py-2 rounded-md text-sm font-bold text-gray-500 hover:bg-gray-200"; 
+            };
+            els.tabSignup.onclick = () => { 
+                isLoginMode = false; 
+                els.authFormContainer.classList.remove('hidden'); 
+                els.guestFormContainer.classList.add('hidden'); 
+                els.authBtn.textContent = "Sign Up"; 
+                els.tabSignup.className="flex-1 py-2 rounded-md text-sm font-bold bg-white shadow-sm text-indigo-600"; 
+                els.tabLogin.className="flex-1 py-2 rounded-md text-sm font-bold text-gray-500 hover:bg-gray-200"; 
+                els.tabGuest.className="flex-1 py-2 rounded-md text-sm font-bold text-gray-500 hover:bg-gray-200"; 
+            };
+            els.tabGuest.onclick = () => { 
+                els.authFormContainer.classList.add('hidden'); 
+                els.guestFormContainer.classList.remove('hidden'); 
+                els.tabGuest.className="flex-1 py-2 rounded-md text-sm font-bold bg-white shadow-sm text-indigo-600"; 
+                els.tabLogin.className="flex-1 py-2 rounded-md text-sm font-bold text-gray-500 hover:bg-gray-200"; 
+                els.tabSignup.className="flex-1 py-2 rounded-md text-sm font-bold text-gray-500 hover:bg-gray-200"; 
+            };
+            
+            els.authBtn.onclick = () => handleAuth(!isLoginMode);
+            els.guestBtn.onclick = async () => { await signInAnonymously(auth); };
+            els.logoutBtn.onclick = () => signOut(auth);
+
             els.createRoomBtn.onclick = createRoom;
             els.joinRoomBtn.onclick = handleJoinById; 
             els.leaveRoomBtn.onclick = leaveRoom;
             
+            els.saveNameBtn.onclick = () => {
+                const name = els.editNameInput.value.trim();
+                if(name.length > 2) { userData.name = name; saveUserData(); }
+                else showModal("Name must be at least 3 characters.");
+            };
+
+            // Search
+            els.roomSearchInput.oninput = renderRoomList;
+            
+            // Copy Link (using execCommand for maximum compatibility in sandbox)
             if(els.copyLinkBtn) els.copyLinkBtn.onclick = () => {
                 if (!currentRoomId) return showModal("You must be in a room to copy a link.");
+                // Construct the full deep link URL
                 const roomUrl = `${window.location.origin}${window.location.pathname}?room=${currentRoomId}`;
-                document.execCommand('copy');
-                navigator.clipboard.writeText(roomUrl).then(() => showModal("Room Link Copied!"));
+                copyToClipboard(roomUrl);
             };
             
+            // Game Actions
             els.rollBtn.onclick = () => performAction(rollAction);
             els.addDieBtn.onclick = () => performAction(addDieAction);
             els.clearBtn.onclick = () => performAction(resetAction);
-            els.submitGoalBtn.onclick = () => performAction(submitGoalAction(leaderGoalSelection));
+            els.submitGoalBtn.onclick = () => {
+                // Clear the temporary selection and perform action
+                performAction(submitGoalAction(leaderGoalSelection));
+                leaderGoalSelection = []; 
+                // Reset the leader grid UI after submission
+                Array.from(els.leaderGrid.children).forEach(d => d.classList.remove('selected'));
+                showModal("Goal submitted successfully!");
+            };
 
-            els.tabChat.onclick = () => { els.panelChat.classList.remove('hidden'); els.panelLog.classList.add('hidden'); els.tabChat.className="flex-1 py-3 text-indigo-600 border-b-2 border-indigo-600 bg-white"; els.tabLog.className="flex-1 py-3 hover:bg-white transition border-b-2 border-transparent"; };
-            els.tabLog.onclick = () => { els.panelLog.classList.remove('hidden'); els.panelChat.classList.add('hidden'); els.tabLog.className="flex-1 py-3 text-indigo-600 border-b-2 border-indigo-600 bg-white"; els.tabChat.className="flex-1 py-3 hover:bg-white transition border-b-2 border-transparent"; };
+            // Tabs
+            els.tabChat.onclick = () => { 
+                els.panelChat.classList.remove('hidden'); 
+                els.panelLog.classList.add('hidden'); 
+                els.tabChat.classList.add('text-indigo-600', 'border-b-2', 'border-indigo-600', 'bg-white');
+                els.tabChat.classList.remove('hover:bg-white', 'border-transparent');
+                els.tabLog.classList.remove('text-indigo-600', 'border-b-2', 'border-indigo-600', 'bg-white');
+                els.tabLog.classList.add('hover:bg-white', 'border-transparent');
+            };
+            els.tabLog.onclick = () => { 
+                els.panelLog.classList.remove('hidden'); 
+                els.panelChat.classList.add('hidden'); 
+                els.tabLog.classList.add('text-indigo-600', 'border-b-2', 'border-indigo-600', 'bg-white');
+                els.tabLog.classList.remove('hover:bg-white', 'border-transparent');
+                els.tabChat.classList.remove('text-indigo-600', 'border-b-2', 'border-indigo-600', 'bg-white');
+                els.tabChat.classList.add('hover:bg-white', 'border-transparent');
+            };
             
             els.chatForm.onsubmit = sendMessage;
+            
+            // Restore theme
+            const savedTheme = localStorage.getItem('knockout_theme');
+            if(savedTheme) changeTheme(savedTheme);
         };
-
+        
+        // Ensure initial view is correct before connection finishes
+        switchView('auth');
     </script>
 </body>
 </html>
